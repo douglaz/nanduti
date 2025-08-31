@@ -1,0 +1,331 @@
+//! NIP-47 protocol request handler
+
+use anyhow::{anyhow, bail, Context, Result};
+use fedimint_nwc_core::{
+    federation::{FederationManager, FederationStatus},
+    lightning::LightningOperation,
+    models::{Amount, Transaction, TransactionState, TransactionType},
+    nwc_protocol::{
+        ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcRequest, NwcResponse,
+        PayInvoiceParams, PayKeysendParams,
+    },
+    storage::Storage,
+};
+use serde_json::Value;
+use std::sync::Arc;
+use tracing::{debug, info, warn};
+
+use crate::router::FederationRouter;
+
+/// Handles NWC protocol requests
+pub struct NwcHandler {
+    federation_manager: Arc<FederationManager>,
+    router: Arc<FederationRouter>,
+    storage: Option<Arc<Storage>>,
+}
+
+impl NwcHandler {
+    /// Create a new NWC handler
+    pub fn new(
+        federation_manager: Arc<FederationManager>,
+        router: Arc<FederationRouter>,
+        storage: Option<Arc<Storage>>,
+    ) -> Self {
+        Self {
+            federation_manager,
+            router,
+            storage,
+        }
+    }
+
+    /// Handle a NWC request
+    pub async fn handle_request(&self, request: NwcRequest) -> Result<NwcResponse> {
+        debug!("Handling NWC request: {}", request.method);
+
+        match request.method.as_str() {
+            "pay_invoice" => self.handle_pay_invoice(request.params).await,
+            "make_invoice" => self.handle_make_invoice(request.params).await,
+            "get_balance" => self.handle_get_balance().await,
+            "list_transactions" => self.handle_list_transactions(request.params).await,
+            "get_info" => self.handle_get_info().await,
+            "pay_keysend" => self.handle_pay_keysend(request.params).await,
+            "lookup_invoice" => self.handle_lookup_invoice(request.params).await,
+            method => {
+                warn!("Unimplemented method: {method}");
+                Ok(NwcResponse::error(
+                    method.to_string(),
+                    NwcErrorCode::NotImplemented,
+                    format!("Method {method} is not implemented"),
+                ))
+            }
+        }
+    }
+
+    /// Handle pay_invoice request
+    async fn handle_pay_invoice(&self, params: Value) -> Result<NwcResponse> {
+        let params: PayInvoiceParams =
+            serde_json::from_value(params).context("Invalid pay_invoice parameters")?;
+
+        // Parse invoice
+        let invoice = LightningOperation::parse_invoice(&params.invoice)?;
+
+        // Validate invoice
+        LightningOperation::validate_invoice(&invoice)?;
+
+        // Determine amount
+        let amount = if let Some(override_amount) = params.amount {
+            Amount::from_msats(override_amount)
+        } else if let Some(invoice_amount) = invoice.amount {
+            invoice_amount
+        } else {
+            bail!("Invoice amount not specified");
+        };
+
+        // Select federation
+        let federation = self.router.select_federation(amount).await?;
+
+        info!(
+            "Paying invoice via federation {} for {} msats",
+            federation.id,
+            amount.as_msats()
+        );
+
+        // Execute payment
+        let client = federation
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow!("Federation client not initialized"))?;
+
+        let result = client.pay_invoice(&invoice).await?;
+
+        // Store transaction
+        if let Some(storage) = &self.storage {
+            let transaction = Transaction {
+                id: format!("tx_{}", uuid::Uuid::new_v4()),
+                federation_id: federation.id.clone(),
+                transaction_type: TransactionType::Outgoing,
+                state: TransactionState::Settled,
+                invoice: Some(params.invoice),
+                description: invoice.description,
+                preimage: Some(result.preimage.clone()),
+                payment_hash: result.payment_hash.clone(),
+                amount,
+                fees_paid: result.fees_paid,
+                created_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_secs(),
+                settled_at: Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)?
+                        .as_secs(),
+                ),
+                metadata: None,
+            };
+            storage.store_transaction(&transaction)?;
+        }
+
+        Ok(NwcResponse::pay_invoice(result))
+    }
+
+    /// Handle make_invoice request
+    async fn handle_make_invoice(&self, params: Value) -> Result<NwcResponse> {
+        let params: MakeInvoiceParams =
+            serde_json::from_value(params).context("Invalid make_invoice parameters")?;
+
+        let amount = Amount::from_msats(params.amount);
+        let description = params.description.unwrap_or_else(|| "Payment".to_string());
+
+        // Select a federation (round-robin or least loaded)
+        let federation = self.router.select_federation_for_receive().await?;
+
+        info!(
+            "Creating invoice via federation {} for {} msats",
+            federation.id,
+            amount.as_msats()
+        );
+
+        let client = federation
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow!("Federation client not initialized"))?;
+
+        let invoice = client
+            .make_invoice(amount, description, params.expiry)
+            .await?;
+
+        // Create transaction record
+        let transaction = Transaction {
+            id: format!("tx_{}", uuid::Uuid::new_v4()),
+            federation_id: federation.id.clone(),
+            transaction_type: TransactionType::Incoming,
+            state: TransactionState::Pending,
+            invoice: Some(invoice.bolt11.clone()),
+            description: invoice.description.clone(),
+            preimage: None,
+            payment_hash: invoice.payment_hash.clone(),
+            amount,
+            fees_paid: None,
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs(),
+            settled_at: None,
+            metadata: None,
+        };
+
+        // Store transaction
+        if let Some(storage) = &self.storage {
+            storage.store_transaction(&transaction)?;
+        }
+
+        Ok(NwcResponse::make_invoice(invoice, transaction))
+    }
+
+    /// Handle get_balance request
+    async fn handle_get_balance(&self) -> Result<NwcResponse> {
+        let balance = self.federation_manager.get_total_balance().await;
+        Ok(NwcResponse::get_balance(balance.as_msats()))
+    }
+
+    /// Handle list_transactions request
+    async fn handle_list_transactions(&self, params: Value) -> Result<NwcResponse> {
+        let params: ListTransactionsParams =
+            serde_json::from_value(params).context("Invalid list_transactions parameters")?;
+
+        let mut all_transactions = Vec::new();
+
+        // Get transactions from all federations
+        if let Some(storage) = &self.storage {
+            for federation in self.federation_manager.list_federations().await {
+                let transactions =
+                    storage.get_federation_transactions(&federation.id, params.limit)?;
+                all_transactions.extend(transactions);
+            }
+        }
+
+        // Sort by created_at descending
+        all_transactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        // Apply limit
+        if let Some(limit) = params.limit {
+            all_transactions.truncate(limit);
+        }
+
+        Ok(NwcResponse::list_transactions(all_transactions))
+    }
+
+    /// Handle get_info request
+    async fn handle_get_info(&self) -> Result<NwcResponse> {
+        // Get first online federation for network info
+        let federations = self.federation_manager.list_federations().await;
+        let online_federation = federations
+            .iter()
+            .find(|f| f.status == FederationStatus::Online);
+
+        let (network, block_height) = if let Some(federation) = online_federation {
+            if let Some(client) = &federation.client {
+                let info = client.get_info().await?;
+                (info.network, info.block_height)
+            } else {
+                ("bitcoin".to_string(), 0)
+            }
+        } else {
+            ("bitcoin".to_string(), 0)
+        };
+
+        let methods = vec![
+            "pay_invoice".to_string(),
+            "make_invoice".to_string(),
+            "get_balance".to_string(),
+            "list_transactions".to_string(),
+            "get_info".to_string(),
+            "pay_keysend".to_string(),
+            "lookup_invoice".to_string(),
+        ];
+
+        let notifications = vec!["payment_received".to_string(), "payment_sent".to_string()];
+
+        // Generate a deterministic pubkey for this instance
+        let pubkey =
+            "02fedimint0000000000000000000000000000000000000000000000000000000".to_string();
+
+        Ok(NwcResponse::get_info(
+            pubkey,
+            network,
+            block_height,
+            methods,
+            notifications,
+        ))
+    }
+
+    /// Handle pay_keysend request
+    async fn handle_pay_keysend(&self, params: Value) -> Result<NwcResponse> {
+        let params: PayKeysendParams =
+            serde_json::from_value(params).context("Invalid pay_keysend parameters")?;
+
+        let amount = Amount::from_msats(params.amount);
+
+        // Select federation
+        let federation = self.router.select_federation(amount).await?;
+
+        info!(
+            "Sending keysend via federation {} for {} msats to {}",
+            federation.id,
+            amount.as_msats(),
+            params.pubkey
+        );
+
+        let client = federation
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow!("Federation client not initialized"))?;
+
+        let preimage = params
+            .preimage
+            .map(|p| hex::decode(p))
+            .transpose()
+            .context("Invalid preimage hex")?;
+
+        let result = client.pay_keysend(&params.pubkey, amount, preimage).await?;
+
+        // Store transaction
+        if let Some(storage) = &self.storage {
+            let transaction = Transaction {
+                id: format!("tx_{}", uuid::Uuid::new_v4()),
+                federation_id: federation.id.clone(),
+                transaction_type: TransactionType::Outgoing,
+                state: TransactionState::Settled,
+                invoice: None,
+                description: Some(format!("Keysend to {}", params.pubkey)),
+                preimage: Some(result.preimage.clone()),
+                payment_hash: result.payment_hash.clone(),
+                amount,
+                fees_paid: result.fees_paid,
+                created_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_secs(),
+                settled_at: Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)?
+                        .as_secs(),
+                ),
+                metadata: None,
+            };
+            storage.store_transaction(&transaction)?;
+        }
+
+        Ok(NwcResponse::pay_invoice(result))
+    }
+
+    /// Handle lookup_invoice request
+    async fn handle_lookup_invoice(&self, _params: Value) -> Result<NwcResponse> {
+        // TODO: Implement invoice lookup
+        Ok(NwcResponse::error(
+            "lookup_invoice".to_string(),
+            NwcErrorCode::NotImplemented,
+            "Invoice lookup not yet implemented".to_string(),
+        ))
+    }
+}
+
+// Add uuid dependency for transaction IDs
+use uuid;
