@@ -87,7 +87,7 @@
           
           meta = with pkgs.lib; {
             description = "Multi-backend NWC (Nostr Wallet Connect) implementation support";
-            homepage = "https://github.com/user/nanduti";
+            homepage = "https://github.com/douglaz/nanduti";
             license = licenses.mit;
             maintainers = [ ];
           };
@@ -114,7 +114,7 @@
           
           meta = with pkgs.lib; {
             description = "Multi-federation Fedimint wallet with NWC support (dynamic build)";
-            homepage = "https://github.com/user/nanduti";
+            homepage = "https://github.com/douglaz/nanduti";
             license = licenses.mit;
             maintainers = [ ];
           };
