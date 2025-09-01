@@ -51,7 +51,7 @@ impl FedimintClientWrapper {
         let base_dir = data_dir
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from(".nanduti"));
-        let db_path = base_dir.join(format!("federation_{}", federation_id));
+        let db_path = base_dir.join(format!("federation_{federation_id}"));
         std::fs::create_dir_all(&db_path)?;
 
         // Open database
@@ -74,7 +74,7 @@ impl FedimintClientWrapper {
             client_builder.with_primary_module_kind(fedimint_mint_client::KIND);
 
             if let Ok(client) = client_builder.open(root_secret.clone()).await {
-                info!("Opened existing client for federation {}", federation_id);
+                info!("Opened existing client for federation {federation_id}");
 
                 // Get federation name from config
                 let config = client.config().await;
@@ -95,7 +95,7 @@ impl FedimintClientWrapper {
         }
 
         // Join new federation if client doesn't exist
-        info!("Joining new federation {}", federation_id);
+        info!("Joining new federation {federation_id}");
 
         // Create a new client builder for joining
         let mut client_builder = Client::builder(db.clone()).await?;
@@ -128,7 +128,7 @@ impl FedimintClientWrapper {
             .map(Arc::new)
             .context("Failed to join federation")?;
 
-        info!("Successfully joined federation: {}", federation_name);
+        info!("Successfully joined federation: {federation_name}");
 
         Ok(Self {
             client,
@@ -205,7 +205,8 @@ impl FedimintClientWrapper {
             .get_first_module::<LightningClientModule>()
             .context("Lightning module not available")?;
 
-        info!("Paying invoice via federation {}", self.federation_name);
+        let federation_name = &self.federation_name;
+        info!("Paying invoice via federation {federation_name}");
 
         // Pay the invoice and get the operation
         let outgoing_payment = ln_module
@@ -258,11 +259,9 @@ impl FedimintClientWrapper {
         // List available gateways
         let gateways = ln_module.list_gateways().await;
 
-        info!(
-            "Found {} gateways in federation {}",
-            gateways.len(),
-            self.federation_name
-        );
+        let gateways_count = gateways.len();
+        let federation_name = &self.federation_name;
+        info!("Found {gateways_count} gateways in federation {federation_name}");
         Ok(gateways)
     }
 
@@ -311,13 +310,10 @@ impl FedimintClientWrapper {
             .filter(|(_, s)| *s == GatewayVettingStatus::Unknown)
             .count();
 
+        let total_gateways = gateways_with_status.len();
+        let federation_name = &self.federation_name;
         info!(
-            "Found {} gateways in federation {}: {} vetted, {} not-vetted, {} unrestricted",
-            gateways_with_status.len(),
-            self.federation_name,
-            vetted_count,
-            not_vetted_count,
-            unknown_count
+            "Found {total_gateways} gateways in federation {federation_name}: {vetted_count} vetted, {not_vetted_count} not-vetted, {unknown_count} unrestricted"
         );
 
         Ok(gateways_with_status)
@@ -328,10 +324,8 @@ impl FedimintClientWrapper {
         let gateways_with_status = self.fetch_gateways_with_vetted_status().await?;
 
         if gateways_with_status.is_empty() {
-            info!(
-                "No gateways available in federation {}",
-                self.federation_name
-            );
+            let federation_name = &self.federation_name;
+            info!("No gateways available in federation {federation_name}");
             return Ok(None);
         }
 
@@ -350,11 +344,9 @@ impl FedimintClientWrapper {
 
         // Selection priority: Vetted > Unknown > Never select NotVetted
         let (selected, status_name) = if !vetted.is_empty() {
-            info!(
-                "Selecting from {} vetted gateways in federation {}",
-                vetted.len(),
-                self.federation_name
-            );
+            let vetted_count = vetted.len();
+            let federation_name = &self.federation_name;
+            info!("Selecting from {vetted_count} vetted gateways in federation {federation_name}");
             (
                 vetted
                     .into_iter()
@@ -363,10 +355,10 @@ impl FedimintClientWrapper {
                 "vetted",
             )
         } else if !unknown.is_empty() {
+            let unknown_count = unknown.len();
+            let federation_name = &self.federation_name;
             info!(
-                "No vetted gateways available, selecting from {} unrestricted gateways in federation {} (no vetting policy)",
-                unknown.len(),
-                self.federation_name
+                "No vetted gateways available, selecting from {unknown_count} unrestricted gateways in federation {federation_name} (no vetting policy)"
             );
             (
                 unknown
@@ -376,19 +368,18 @@ impl FedimintClientWrapper {
                 "unrestricted",
             )
         } else {
+            let not_vetted_count = not_vetted.len();
+            let federation_name = &self.federation_name;
             info!(
-                "Warning: Only {} not-vetted gateways available in federation {} - cannot select (policy forbids)",
-                not_vetted.len(),
-                self.federation_name
+                "Warning: Only {not_vetted_count} not-vetted gateways available in federation {federation_name} - cannot select (policy forbids)"
             );
             (None, "none")
         };
 
         if let Some(ref gateway) = selected {
-            info!(
-                "Selected {} gateway {} for federation {}",
-                status_name, gateway.gateway_id, self.federation_name
-            );
+            let gateway_id = &gateway.gateway_id;
+            let federation_name = &self.federation_name;
+            info!("Selected {status_name} gateway {gateway_id} for federation {federation_name}");
         }
 
         Ok(selected)
@@ -413,20 +404,20 @@ impl FedimintClientWrapper {
         let gateway = self.select_gateway().await?;
 
         if gateway.is_none() {
+            let federation_name = &self.federation_name;
             info!(
-                "Warning: Creating invoice without gateway routing hints for federation {}",
-                self.federation_name
+                "Warning: Creating invoice without gateway routing hints for federation {federation_name}"
             );
         }
 
+        let federation_name = &self.federation_name;
+        let amount_msats = amount.as_msats();
+        let gateway_id = gateway
+            .as_ref()
+            .map(|g| g.gateway_id.to_string())
+            .unwrap_or_else(|| "none".to_string());
         info!(
-            "Creating invoice via federation {} for {} msats with gateway: {}",
-            self.federation_name,
-            amount.as_msats(),
-            gateway
-                .as_ref()
-                .map(|g| g.gateway_id.to_string())
-                .unwrap_or_else(|| "none".to_string())
+            "Creating invoice via federation {federation_name} for {amount_msats} msats with gateway: {gateway_id}"
         );
 
         // Create the invoice with proper parameters for fedimint 0.8.1
@@ -478,9 +469,9 @@ impl FedimintClientWrapper {
             Ok(module) => module,
             Err(_) => {
                 // Meta module not available, no vetting policy
+                let federation_name = &self.federation_name;
                 info!(
-                    "Meta module not available in federation {} - no vetting policy",
-                    self.federation_name
+                    "Meta module not available in federation {federation_name} - no vetting policy"
                 );
                 return Ok(None);
             }
@@ -505,30 +496,28 @@ impl FedimintClientWrapper {
                                 .filter_map(|v| v.as_str().map(String::from))
                                 .collect();
 
+                            let gateway_count = gateway_ids.len();
+                            let federation_name = &self.federation_name;
+                            let revision = consensus.revision;
                             info!(
-                                "Found vetted gateway policy with {} approved gateways in federation {} (revision {})",
-                                gateway_ids.len(),
-                                self.federation_name,
-                                consensus.revision
+                                "Found vetted gateway policy with {gateway_count} approved gateways in federation {federation_name} (revision {revision})"
                             );
                             return Ok(Some(gateway_ids));
                         }
                     }
                 }
                 Err(e) => {
+                    let federation_name = &self.federation_name;
                     info!(
-                        "Failed to parse meta value as JSON in federation {}: {}",
-                        self.federation_name, e
+                        "Failed to parse meta value as JSON in federation {federation_name}: {e}"
                     );
                 }
             }
         }
 
         // No vetted gateway policy configured
-        info!(
-            "No vetted gateway policy configured in federation {}",
-            self.federation_name
-        );
+        let federation_name = &self.federation_name;
+        info!("No vetted gateway policy configured in federation {federation_name}");
         Ok(None)
     }
 

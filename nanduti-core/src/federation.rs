@@ -69,10 +69,9 @@ impl FederationManager {
             let mut federations = manager.federations.write().await;
 
             for mut federation in stored_federations {
-                info!(
-                    "Loading federation: {} ({})",
-                    federation.id, federation.name
-                );
+                let federation_id = &federation.id;
+                let federation_name = &federation.name;
+                info!("Loading federation: {federation_id} ({federation_name})");
 
                 // Re-initialize the client for each federation
                 if !federation.invite_code.is_empty() {
@@ -87,9 +86,9 @@ impl FederationManager {
                             federation.client = Some(Arc::new(client));
                         }
                         Err(e) => {
+                            let federation_id = &federation.id;
                             warn!(
-                                "Failed to initialize client for federation {}: {}",
-                                federation.id, e
+                                "Failed to initialize client for federation {federation_id}: {e}"
                             );
                             federation.status = FederationStatus::Offline;
                         }
@@ -295,10 +294,8 @@ impl FederationManager {
 
         // Try to extract federation name from the invite code
         // This would typically come from the federation config after joining
-        let federation_name = format!(
-            "Federation {}",
-            &federation_id[0..8.min(federation_id.len())]
-        );
+        let federation_prefix = &federation_id[0..8.min(federation_id.len())];
+        let federation_name = format!("Federation {federation_prefix}");
 
         Ok((federation_id, federation_name))
     }

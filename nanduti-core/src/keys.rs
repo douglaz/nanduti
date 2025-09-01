@@ -90,22 +90,23 @@ impl NwcConnection {
 
         // Add relays
         for relay in &self.relays {
-            params.push(format!("relay={}", urlencoding::encode(relay)));
+            let encoded_relay = urlencoding::encode(relay);
+            params.push(format!("relay={encoded_relay}"));
         }
 
         // Add secret
-        params.push(format!("secret={}", self.secret));
+        let secret = &self.secret;
+        params.push(format!("secret={secret}"));
 
         // Add optional lud16
         if let Some(lud16) = &self.lud16 {
-            params.push(format!("lud16={}", urlencoding::encode(lud16)));
+            let encoded_lud16 = urlencoding::encode(lud16);
+            params.push(format!("lud16={encoded_lud16}"));
         }
 
-        format!(
-            "nostr+walletconnect://{}?{}",
-            self.wallet_pubkey,
-            params.join("&")
-        )
+        let wallet_pubkey = &self.wallet_pubkey;
+        let query_string = params.join("&");
+        format!("nostr+walletconnect://{wallet_pubkey}?{query_string}")
     }
 
     /// Parse a connection URI

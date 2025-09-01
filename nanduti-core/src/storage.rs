@@ -24,14 +24,19 @@ impl Storage {
     pub fn new(data_dir: Option<&Path>) -> Result<Self> {
         let (db, federations, connections, transactions) = match data_dir {
             Some(dir) => {
-                info!("Opening database at {}", dir.display());
+                let dir_path = dir.display();
+                info!("Opening database at {dir_path}");
 
                 // Create directory if it doesn't exist
                 std::fs::create_dir_all(dir).context("Failed to create data directory")?;
 
                 let db_path = dir.join("nanduti.db");
-                let db = sled::open(&db_path)
-                    .with_context(|| format!("Failed to open database at {}", db_path.display()))?;
+                let db = sled::open(&db_path).with_context(|| {
+                    format!(
+                        "Failed to open database at {path}",
+                        path = db_path.display()
+                    )
+                })?;
 
                 let federations = Some(
                     db.open_tree("federations")
@@ -68,7 +73,8 @@ impl Storage {
             let data = serde_json::to_vec(federation).context("Failed to serialize federation")?;
             tree.insert(federation.id.as_bytes(), data)
                 .context("Failed to store federation")?;
-            debug!("Stored federation: {}", federation.id);
+            let federation_id = &federation.id;
+            debug!("Stored federation: {federation_id}");
         }
         Ok(())
     }
@@ -121,7 +127,8 @@ impl Storage {
                 serde_json::to_vec(transaction).context("Failed to serialize transaction")?;
             tree.insert(transaction.id.as_bytes(), data)
                 .context("Failed to store transaction")?;
-            debug!("Stored transaction: {}", transaction.id);
+            let transaction_id = &transaction.id;
+            debug!("Stored transaction: {transaction_id}");
         }
         Ok(())
     }
@@ -164,7 +171,8 @@ impl Storage {
             let data = serde_json::to_vec(connection).context("Failed to serialize connection")?;
             tree.insert(connection.id.as_bytes(), data)
                 .context("Failed to store connection")?;
-            debug!("Stored connection: {}", connection.id);
+            let connection_id = &connection.id;
+            debug!("Stored connection: {connection_id}");
         }
         Ok(())
     }

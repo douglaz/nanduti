@@ -52,7 +52,7 @@ impl FromStr for Amount {
             let btc: f64 = btc_str
                 .trim()
                 .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid BTC amount: {}", btc_str))?;
+                .map_err(|_| anyhow::anyhow!("Invalid BTC amount: {btc_str}"))?;
             if btc < 0.0 {
                 bail!("Negative amounts not allowed");
             }
@@ -66,7 +66,7 @@ impl FromStr for Amount {
             let msats: u64 = msats_str
                 .trim()
                 .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid msats amount: {}", msats_str))?;
+                .map_err(|_| anyhow::anyhow!("Invalid msats amount: {msats_str}"))?;
             Ok(Amount::from_msats(msats))
         } else if let Some(sats_str) = lower
             .strip_suffix("sats")
@@ -76,7 +76,7 @@ impl FromStr for Amount {
             let sats: u64 = sats_str
                 .trim()
                 .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid sats amount: {}", sats_str))?;
+                .map_err(|_| anyhow::anyhow!("Invalid sats amount: {sats_str}"))?;
             Ok(Amount::from_sats(sats))
         } else {
             // Try to parse as plain number (assume sats for backward compatibility)
@@ -89,7 +89,7 @@ impl FromStr for Amount {
                             let sats = (btc * 100_000_000.0) as u64;
                             Ok(Amount::from_sats(sats))
                         }
-                        _ => bail!("Invalid amount format: {}. Use formats like '100sats', '0.001btc', or '1000msats'", s)
+                        _ => bail!("Invalid amount format: {s}. Use formats like '100sats', '0.001btc', or '1000msats'")
                     }
                 }
             }
