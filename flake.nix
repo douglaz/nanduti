@@ -134,7 +134,8 @@
           ];
           
           config = {
-            Cmd = [ "${self.packages.${system}.default}/bin/nanduti" ];
+            Entrypoint = [ "${self.packages.${system}.default}/bin/nanduti" ];
+            Cmd = [ "serve" ];  # Default command
             Env = [
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
               "RUST_LOG=info"
