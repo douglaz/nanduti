@@ -12,6 +12,7 @@ use nanduti_core::{
     storage::Storage,
 };
 use serde_json::Value;
+use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -43,20 +44,18 @@ impl NwcHandler {
         let method_str = &request.method;
         debug!("Handling NWC request: {method_str}");
 
-        // Parse the method string into enum
+        // Parse the method string into enum using FromStr trait
         let method = NwcMethod::from_str(method_str);
 
         match method {
-            Some(NwcMethod::PayInvoice) => self.handle_pay_invoice(request.params).await,
-            Some(NwcMethod::MakeInvoice) => self.handle_make_invoice(request.params).await,
-            Some(NwcMethod::GetBalance) => self.handle_get_balance().await,
-            Some(NwcMethod::ListTransactions) => {
-                self.handle_list_transactions(request.params).await
-            }
-            Some(NwcMethod::GetInfo) => self.handle_get_info().await,
-            Some(NwcMethod::PayKeysend) => self.handle_pay_keysend(request.params).await,
-            Some(NwcMethod::LookupInvoice) => self.handle_lookup_invoice(request.params).await,
-            Some(NwcMethod::MultiPayInvoice) | Some(NwcMethod::MultiPayKeysend) => {
+            Ok(NwcMethod::PayInvoice) => self.handle_pay_invoice(request.params).await,
+            Ok(NwcMethod::MakeInvoice) => self.handle_make_invoice(request.params).await,
+            Ok(NwcMethod::GetBalance) => self.handle_get_balance().await,
+            Ok(NwcMethod::ListTransactions) => self.handle_list_transactions(request.params).await,
+            Ok(NwcMethod::GetInfo) => self.handle_get_info().await,
+            Ok(NwcMethod::PayKeysend) => self.handle_pay_keysend(request.params).await,
+            Ok(NwcMethod::LookupInvoice) => self.handle_lookup_invoice(request.params).await,
+            Ok(NwcMethod::MultiPayInvoice) | Ok(NwcMethod::MultiPayKeysend) => {
                 warn!("Unimplemented method: {method_str}");
                 Ok(NwcResponse::error(
                     method_str.to_string(),
@@ -64,7 +63,7 @@ impl NwcHandler {
                     format!("Method {method_str} is not yet implemented"),
                 ))
             }
-            None => {
+            Err(_) => {
                 warn!("Unknown method: {method_str}");
                 Ok(NwcResponse::error(
                     method_str.to_string(),

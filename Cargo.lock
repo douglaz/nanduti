@@ -3953,6 +3953,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sled",
+ "strum 0.27.2",
  "tokio",
  "tracing",
  "urlencoding",
