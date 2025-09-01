@@ -21,6 +21,39 @@ pub enum NwcMethod {
     GetInfo,
 }
 
+impl NwcMethod {
+    /// Parse a method string into an enum variant
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "pay_invoice" => Some(Self::PayInvoice),
+            "multi_pay_invoice" => Some(Self::MultiPayInvoice),
+            "pay_keysend" => Some(Self::PayKeysend),
+            "multi_pay_keysend" => Some(Self::MultiPayKeysend),
+            "make_invoice" => Some(Self::MakeInvoice),
+            "lookup_invoice" => Some(Self::LookupInvoice),
+            "list_transactions" => Some(Self::ListTransactions),
+            "get_balance" => Some(Self::GetBalance),
+            "get_info" => Some(Self::GetInfo),
+            _ => None,
+        }
+    }
+
+    /// Get the method string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PayInvoice => "pay_invoice",
+            Self::MultiPayInvoice => "multi_pay_invoice",
+            Self::PayKeysend => "pay_keysend",
+            Self::MultiPayKeysend => "multi_pay_keysend",
+            Self::MakeInvoice => "make_invoice",
+            Self::LookupInvoice => "lookup_invoice",
+            Self::ListTransactions => "list_transactions",
+            Self::GetBalance => "get_balance",
+            Self::GetInfo => "get_info",
+        }
+    }
+}
+
 /// NWC request structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NwcRequest {

@@ -6,8 +6,8 @@ use nanduti_core::{
     lightning::LightningOperation,
     models::{Amount, Transaction, TransactionState, TransactionType},
     nwc_protocol::{
-        ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcRequest, NwcResponse,
-        PayInvoiceParams, PayKeysendParams,
+        ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcRequest,
+        NwcResponse, PayInvoiceParams, PayKeysendParams,
     },
     storage::Storage,
 };
@@ -40,22 +40,36 @@ impl NwcHandler {
 
     /// Handle a NWC request
     pub async fn handle_request(&self, request: NwcRequest) -> Result<NwcResponse> {
-        debug!("Handling NWC request: {}", request.method);
+        let method_str = &request.method;
+        debug!("Handling NWC request: {method_str}");
 
-        match request.method.as_str() {
-            "pay_invoice" => self.handle_pay_invoice(request.params).await,
-            "make_invoice" => self.handle_make_invoice(request.params).await,
-            "get_balance" => self.handle_get_balance().await,
-            "list_transactions" => self.handle_list_transactions(request.params).await,
-            "get_info" => self.handle_get_info().await,
-            "pay_keysend" => self.handle_pay_keysend(request.params).await,
-            "lookup_invoice" => self.handle_lookup_invoice(request.params).await,
-            method => {
-                warn!("Unimplemented method: {method}");
+        // Parse the method string into enum
+        let method = NwcMethod::from_str(method_str);
+
+        match method {
+            Some(NwcMethod::PayInvoice) => self.handle_pay_invoice(request.params).await,
+            Some(NwcMethod::MakeInvoice) => self.handle_make_invoice(request.params).await,
+            Some(NwcMethod::GetBalance) => self.handle_get_balance().await,
+            Some(NwcMethod::ListTransactions) => {
+                self.handle_list_transactions(request.params).await
+            }
+            Some(NwcMethod::GetInfo) => self.handle_get_info().await,
+            Some(NwcMethod::PayKeysend) => self.handle_pay_keysend(request.params).await,
+            Some(NwcMethod::LookupInvoice) => self.handle_lookup_invoice(request.params).await,
+            Some(NwcMethod::MultiPayInvoice) | Some(NwcMethod::MultiPayKeysend) => {
+                warn!("Unimplemented method: {method_str}");
                 Ok(NwcResponse::error(
-                    method.to_string(),
+                    method_str.to_string(),
                     NwcErrorCode::NotImplemented,
-                    format!("Method {method} is not implemented"),
+                    format!("Method {method_str} is not yet implemented"),
+                ))
+            }
+            None => {
+                warn!("Unknown method: {method_str}");
+                Ok(NwcResponse::error(
+                    method_str.to_string(),
+                    NwcErrorCode::NotImplemented,
+                    format!("Unknown method: {method_str}"),
                 ))
             }
         }
