@@ -26,9 +26,6 @@ jobs:
             accept-flake-config = true
             experimental-features = nix-command flakes
       
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v8
-      
       - name: Check formatting
         run: nix develop -c cargo fmt --check
       
@@ -50,9 +47,6 @@ jobs:
           extra-conf: |
             accept-flake-config = true
             experimental-features = nix-command flakes
-      
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v8
       
       - name: Run tests
         run: nix develop -c cargo test --all-features
@@ -76,9 +70,6 @@ jobs:
           extra-conf: |
             accept-flake-config = true
             experimental-features = nix-command flakes
-      
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v8
       
       - name: Build static binary
         run: nix build .#default
@@ -106,9 +97,6 @@ jobs:
           extra-conf: |
             accept-flake-config = true
             experimental-features = nix-command flakes
-      
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v8
       
       - name: Build Docker image
         run: |
