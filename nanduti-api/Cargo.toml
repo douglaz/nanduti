@@ -1,0 +1,46 @@
+[package]
+name = "nanduti-api"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nanduti Contributors"]
+description = "API server for Nanduti NWC protocol implementation"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Internal
+nanduti-core = { path = "../nanduti-core" }
+
+# Nostr
+nostr-sdk = { workspace = true }
+nostr = { workspace = true }
+
+# Web
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = "0.5"
+futures = { workspace = true }
+
+# Utils
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Crypto
+hex = { workspace = true }
+
+# Utils for IDs
+uuid = { workspace = true }
+rand = { workspace = true }
+
+# Lightning
+lightning-invoice = { workspace = true }
+
+# MCP (optional)
+rmcp = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
+
+[features]
+default = []
+mcp = ["rmcp", "schemars"]

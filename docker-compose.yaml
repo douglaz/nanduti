@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  nanduti:
+    image: nanduti:latest
+    container_name: nanduti
+    restart: unless-stopped
+    ports:
+      - "3517:3517"
+    volumes:
+      - ./data:/data
+    environment:
+      - RUST_LOG=info,nanduti=debug
+    command: 
+      - server
+      - --port
+      - "3517"
+      - --data-dir
+      - /data
+      - --nostr-relay
+      - wss://relay.damus.io
+      - --nostr-relay
+      - wss://relay.primal.net

@@ -1,0 +1,58 @@
+[workspace]
+members = [
+    "nanduti-cli",
+    "nanduti-core",
+    "nanduti-api",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Fedimint
+fedimint-client = "0.8.1"
+fedimint-core = "0.8.1"
+fedimint-ln-client = "0.8.1"
+fedimint-ln-common = "0.8.1"
+fedimint-mint-client = "0.8.1"
+fedimint-wallet-client = "0.8.1"
+fedimint-meta-client = "0.8.1"
+fedimint-bip39 = "0.8.1"
+fedimint-cursed-redb = "0.8.1"
+
+# Nostr
+nostr-sdk = "0.43.0"
+nostr = { version = "0.43.0", features = ["nip44", "nip04"] }
+
+# Async & Web
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+futures = "0.3"
+
+# CLI & Config
+clap = { version = "4", features = ["derive", "env"] }
+
+# Storage (embedded database, works with musl)
+sled = "0.34"
+
+# Utils
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Crypto
+bech32 = "0.11"
+hex = "0.4"
+lightning-invoice = "0.33.2"
+bitcoin = "0.32"
+sha2 = "0.10"
+
+# MCP (optional)
+rmcp = "0.5"
+schemars = "0.8"
+
+# Utils
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+chrono = "0.4"
+urlencoding = "2.1"

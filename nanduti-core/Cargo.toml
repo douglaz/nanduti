@@ -1,0 +1,50 @@
+[package]
+name = "nanduti-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nanduti Contributors"]
+description = "Core library for multi-backend NWC (Nostr Wallet Connect) implementation"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Fedimint
+fedimint-client = { workspace = true }
+fedimint-core = { workspace = true }
+fedimint-ln-client = { workspace = true }
+fedimint-ln-common = { workspace = true }
+fedimint-mint-client = { workspace = true }
+fedimint-wallet-client = { workspace = true }
+fedimint-meta-client = { workspace = true }
+fedimint-bip39 = { workspace = true }
+fedimint-cursed-redb = { workspace = true }
+
+# Storage
+sled = { workspace = true }
+
+# Lightning
+lightning-invoice = { workspace = true }
+bitcoin = { workspace = true }
+
+# Async
+tokio = { workspace = true }
+futures = "0.3"
+async-stream = "0.3"
+
+# Utils
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+rand = { workspace = true }
+
+# Crypto
+hex = { workspace = true }
+bech32 = { workspace = true }
+sha2 = { workspace = true }
+
+# Nostr
+nostr-sdk = { workspace = true }
+nostr = { workspace = true }
+
+# Utils
+urlencoding = { workspace = true }

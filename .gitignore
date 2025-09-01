@@ -1,0 +1,51 @@
+# Build artifacts
+/target/
+Cargo.lock
+
+# Runtime data
+/.nanduti/
+/test-data*/
+/data/
+
+# Log files
+*.log
+*.log.*
+
+# Editor files
+*.swp
+*.swo
+*~
+.*.sw?
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug files
+*.pdb
+
+# Backup files
+*.bak
+*.backup
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+.env
+.env.local
+
+# Local files (not for version control)
+*.local.*
+
+# Coverage
+*.profraw
+*.profdata
+
+# Nix result symlinks
+result
+result-*
