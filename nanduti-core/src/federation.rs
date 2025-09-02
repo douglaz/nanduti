@@ -19,7 +19,7 @@ pub struct Federation {
     /// Federation name from configuration
     pub name: FederationName,
     /// Original invite code
-    pub invite_code: String,
+    pub invite_code: fedimint_core::invite_code::InviteCode,
     /// Current balance in this federation
     pub balance: Amount,
     /// Federation status
@@ -74,24 +74,23 @@ impl FederationManager {
                 info!("Loading federation: {federation_id} ({federation_name})");
 
                 // Re-initialize the client for each federation
-                if !federation.invite_code.is_empty() {
-                    match FedimintClientWrapper::new(&federation.invite_code, data_dir.as_deref())
-                        .await
-                    {
-                        Ok(client) => {
-                            // Update balance
-                            federation.balance =
-                                client.get_balance().await.unwrap_or(Amount::from_msats(0));
-                            federation.status = FederationStatus::Online;
-                            federation.client = Some(Arc::new(client));
-                        }
-                        Err(e) => {
-                            let federation_id = &federation.id;
-                            warn!(
-                                "Failed to initialize client for federation {federation_id}: {e}"
-                            );
-                            federation.status = FederationStatus::Offline;
-                        }
+                match FedimintClientWrapper::new(
+                    &federation.invite_code.to_string(),
+                    data_dir.as_deref(),
+                )
+                .await
+                {
+                    Ok(client) => {
+                        // Update balance
+                        federation.balance =
+                            client.get_balance().await.unwrap_or(Amount::from_msats(0));
+                        federation.status = FederationStatus::Online;
+                        federation.client = Some(Arc::new(client));
+                    }
+                    Err(e) => {
+                        let federation_id = &federation.id;
+                        warn!("Failed to initialize client for federation {federation_id}: {e}");
+                        federation.status = FederationStatus::Offline;
                     }
                 }
 
@@ -106,8 +105,8 @@ impl FederationManager {
     pub async fn add_federation(&self, invite_code: &str) -> Result<FederationId> {
         info!("Adding federation from invite code");
 
-        // Parse invite code to get federation ID and name
-        let (federation_id, federation_name) = self.parse_invite_code(invite_code)?;
+        // Parse invite code to get federation ID, name, and the parsed invite
+        let (federation_id, federation_name, invite) = self.parse_invite_code(invite_code)?;
 
         // Check if federation already exists
         {
@@ -121,7 +120,7 @@ impl FederationManager {
         let mut federation = Federation {
             id: federation_id.clone(),
             name: federation_name.clone(),
-            invite_code: invite_code.to_string(),
+            invite_code: invite.clone(),
             balance: Amount::from_msats(0),
             status: FederationStatus::Initializing,
             metrics: FederationMetrics {
@@ -142,7 +141,7 @@ impl FederationManager {
         };
 
         // Initialize Fedimint client
-        let client = FedimintClientWrapper::new(invite_code, self.data_dir.as_deref())
+        let client = FedimintClientWrapper::new(&invite.to_string(), self.data_dir.as_deref())
             .await
             .context("Failed to initialize Fedimint client")?;
 
@@ -293,8 +292,15 @@ impl FederationManager {
         }
     }
 
-    /// Parse invite code to extract federation ID and name
-    fn parse_invite_code(&self, invite_code: &str) -> Result<(FederationId, FederationName)> {
+    /// Parse invite code to extract federation ID, name, and the parsed invite
+    fn parse_invite_code(
+        &self,
+        invite_code: &str,
+    ) -> Result<(
+        FederationId,
+        FederationName,
+        fedimint_core::invite_code::InviteCode,
+    )> {
         use fedimint_core::invite_code::InviteCode;
         use std::str::FromStr;
 
@@ -309,7 +315,7 @@ impl FederationManager {
         let federation_prefix = &federation_id_str[0..8.min(federation_id_str.len())];
         let federation_name = FederationName(format!("Federation {federation_prefix}"));
 
-        Ok((federation_id, federation_name))
+        Ok((federation_id, federation_name, invite))
     }
 
     /// Get federations that can pay a specific amount
