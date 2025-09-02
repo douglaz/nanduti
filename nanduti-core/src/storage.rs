@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tracing::{debug, info};
 
 use crate::federation::Federation;
-use crate::models::Transaction;
+use crate::models::{FederationId, PublicKey, Transaction};
 
 /// Storage backend for persisting federation and transaction data
 #[derive(Clone)]
@@ -80,10 +80,10 @@ impl Storage {
     }
 
     /// Get a federation by ID
-    pub fn get_federation(&self, federation_id: &str) -> Result<Option<Federation>> {
+    pub fn get_federation(&self, federation_id: &FederationId) -> Result<Option<Federation>> {
         if let Some(tree) = &self.federations {
             if let Some(data) = tree
-                .get(federation_id.as_bytes())
+                .get(federation_id.0.as_bytes())
                 .context("Failed to read federation")?
             {
                 let federation: Federation =
@@ -111,11 +111,11 @@ impl Storage {
     }
 
     /// Remove a federation
-    pub fn remove_federation(&self, federation_id: &str) -> Result<()> {
+    pub fn remove_federation(&self, federation_id: &FederationId) -> Result<()> {
         if let Some(tree) = &self.federations {
-            tree.remove(federation_id.as_bytes())
+            tree.remove(federation_id.0.as_bytes())
                 .context("Failed to remove federation")?;
-            debug!("Removed federation: {federation_id}");
+            debug!("Removed federation: {}", federation_id.0);
         }
         Ok(())
     }
@@ -136,7 +136,7 @@ impl Storage {
     /// Get transactions for a federation
     pub fn get_federation_transactions(
         &self,
-        federation_id: &str,
+        federation_id: &FederationId,
         limit: Option<usize>,
     ) -> Result<Vec<Transaction>> {
         let mut transactions = Vec::new();
@@ -147,7 +147,7 @@ impl Storage {
                 let transaction: Transaction =
                     serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
 
-                if transaction.federation_id.0 == federation_id {
+                if transaction.federation_id == *federation_id {
                     transactions.push(transaction);
 
                     if let Some(limit) = limit {
@@ -178,14 +178,14 @@ impl Storage {
     }
 
     /// Get a NWC connection by public key
-    pub fn get_connection(&self, pubkey: &str) -> Result<Option<NwcConnection>> {
+    pub fn get_connection(&self, pubkey: &PublicKey) -> Result<Option<NwcConnection>> {
         if let Some(tree) = &self.connections {
             for item in tree.iter() {
                 let (_, value) = item.context("Failed to read connection item")?;
                 let connection: NwcConnection =
                     serde_json::from_slice(&value).context("Failed to deserialize connection")?;
 
-                if connection.pubkey == pubkey {
+                if connection.pubkey == pubkey.0 {
                     return Ok(Some(connection));
                 }
             }

@@ -41,7 +41,7 @@ pub async fn pay_invoice(
     let federation = if let Some(fed_id) = req.federation_id {
         state
             .federation_manager
-            .get_federation(&fed_id.0)
+            .get_federation(&fed_id)
             .await
             .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?
     } else {

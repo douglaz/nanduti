@@ -168,12 +168,11 @@ impl FederationManager {
     }
 
     /// Remove a federation
-    pub async fn remove_federation(&self, federation_id: &str) -> Result<()> {
-        let federation_id = FederationId(federation_id.to_string());
+    pub async fn remove_federation(&self, federation_id: &FederationId) -> Result<()> {
         let mut federations = self.federations.write().await;
 
         let federation = federations
-            .remove(&federation_id)
+            .remove(federation_id)
             .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
 
         // Cleanup client if needed
@@ -184,7 +183,7 @@ impl FederationManager {
 
         // Remove from storage
         if let Some(storage) = &self.storage {
-            storage.remove_federation(&federation_id.0)?;
+            storage.remove_federation(federation_id)?;
         }
 
         info!("Removed federation: {federation_id}");
@@ -198,11 +197,10 @@ impl FederationManager {
     }
 
     /// Get a specific federation
-    pub async fn get_federation(&self, federation_id: &str) -> Result<Federation> {
-        let federation_id = FederationId(federation_id.to_string());
+    pub async fn get_federation(&self, federation_id: &FederationId) -> Result<Federation> {
         let federations = self.federations.read().await;
         federations
-            .get(&federation_id)
+            .get(federation_id)
             .map(|f| f.as_ref().clone())
             .ok_or_else(|| anyhow!("Federation {} not found", federation_id))
     }

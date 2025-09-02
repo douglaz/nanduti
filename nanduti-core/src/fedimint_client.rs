@@ -25,7 +25,8 @@ use tracing::info;
 use crate::lightning::PaymentResult;
 use crate::mnemonic_store::MnemonicStore;
 use crate::models::{
-    Amount, Bolt11String, Description, Expiry, GatewayVettingStatus, Invoice, PaymentHash, Preimage,
+    Amount, Bolt11String, Description, Expiry, GatewayVettingStatus, Invoice, PaymentHash,
+    Preimage, PublicKey,
 };
 
 /// Wrapper around the actual Fedimint client
@@ -450,7 +451,7 @@ impl FedimintClientWrapper {
     /// Perform a keysend payment (not yet supported by Fedimint)
     pub async fn pay_keysend(
         &self,
-        _pubkey: &str,
+        _pubkey: &PublicKey,
         _amount: Amount,
         _preimage: Option<Vec<u8>>,
     ) -> Result<PaymentResult> {

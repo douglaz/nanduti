@@ -64,7 +64,7 @@ pub async fn add_federation(
     // Get federation details for response
     let federation = state
         .federation_manager
-        .get_federation(&federation_id.0)
+        .get_federation(&federation_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -96,9 +96,10 @@ pub async fn get_federation(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<FederationInfo>, (StatusCode, String)> {
+    let federation_id = FederationId::new(id);
     let federation = state
         .federation_manager
-        .get_federation(&id)
+        .get_federation(&federation_id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
@@ -115,9 +116,10 @@ pub async fn remove_federation(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    let federation_id = FederationId::new(id);
     state
         .federation_manager
-        .remove_federation(&id)
+        .remove_federation(&federation_id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
@@ -146,9 +148,10 @@ pub async fn list_federation_gateways(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<GatewayInfo>>, (StatusCode, String)> {
+    let federation_id = FederationId::new(id);
     let federation = state
         .federation_manager
-        .get_federation(&id)
+        .get_federation(&federation_id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 

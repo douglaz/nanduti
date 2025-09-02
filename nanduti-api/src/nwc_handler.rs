@@ -220,7 +220,7 @@ impl NwcHandler {
         if let Some(storage) = &self.storage {
             for federation in self.federation_manager.list_federations().await {
                 let transactions =
-                    storage.get_federation_transactions(&federation.id.0, params.limit)?;
+                    storage.get_federation_transactions(&federation.id, params.limit)?;
                 all_transactions.extend(transactions);
             }
         }
@@ -308,9 +308,7 @@ impl NwcHandler {
             .transpose()
             .context("Invalid preimage hex")?;
 
-        let result = client
-            .pay_keysend(&params.pubkey.0, amount, preimage)
-            .await?;
+        let result = client.pay_keysend(&params.pubkey, amount, preimage).await?;
 
         // Store transaction
         if let Some(storage) = &self.storage {

@@ -40,7 +40,7 @@ pub async fn list_transactions(
         // Get transactions for specific federation
         if let Ok(txs) = state
             .storage
-            .get_federation_transactions(&federation_id.0, params.limit)
+            .get_federation_transactions(&federation_id, params.limit)
         {
             all_transactions.extend(txs);
         }
@@ -50,7 +50,7 @@ pub async fn list_transactions(
         for federation in federations {
             if let Ok(txs) = state
                 .storage
-                .get_federation_transactions(&federation.id.0, None)
+                .get_federation_transactions(&federation.id, None)
             {
                 all_transactions.extend(txs);
             }
