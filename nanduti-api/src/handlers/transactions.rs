@@ -20,8 +20,8 @@ pub struct ListTransactionsQuery {
 pub struct TransactionInfo {
     pub id: TransactionId,
     pub federation_id: FederationId,
-    pub transaction_type: String,
-    pub state: String,
+    pub transaction_type: TransactionType,
+    pub state: TransactionState,
     pub amount_sats: u64,
     pub description: Option<Description>,
     pub payment_hash: PaymentHash,
@@ -71,8 +71,8 @@ pub async fn list_transactions(
         .map(|tx| TransactionInfo {
             id: tx.id,
             federation_id: tx.federation_id,
-            transaction_type: format!("{:?}", tx.transaction_type),
-            state: format!("{:?}", tx.state),
+            transaction_type: tx.transaction_type,
+            state: tx.state,
             amount_sats: tx.amount.as_sats(),
             description: tx.description,
             payment_hash: tx.payment_hash,

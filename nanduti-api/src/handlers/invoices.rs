@@ -5,7 +5,6 @@ use nanduti_core::models::{
     Amount, Bolt11String, Description, FederationId, PaymentHash, Timestamp, TransactionId,
 };
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::state::AppState;
@@ -13,7 +12,7 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 pub struct CreateInvoiceRequest {
     pub federation_id: Option<FederationId>,
-    pub amount: String, // Flexible amount parsing (e.g., "100sats", "0.001btc")
+    pub amount: Amount,
     pub description: Description,
     pub expiry: Option<u64>,
 }
@@ -31,9 +30,8 @@ pub async fn create_invoice(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateInvoiceRequest>,
 ) -> Result<Json<CreateInvoiceResponse>, (StatusCode, String)> {
-    // Parse amount
-    let amount = Amount::from_str(&req.amount)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid amount: {}", e)))?;
+    // Use the already-parsed amount
+    let amount = req.amount;
 
     // Select federation
     let federation = if let Some(fed_id) = req.federation_id {

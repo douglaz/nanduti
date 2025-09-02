@@ -7,6 +7,9 @@ description = "Core library for multi-backend NWC (Nostr Wallet Connect) impleme
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+# Enums
+strum = { workspace = true }
+
 # Fedimint
 fedimint-client = { workspace = true }
 fedimint-core = { workspace = true }
@@ -36,7 +39,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 rand = { workspace = true }
-strum = { version = "0.27", features = ["derive"] }
 
 # Crypto
 hex = { workspace = true }

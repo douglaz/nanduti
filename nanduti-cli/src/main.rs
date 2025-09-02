@@ -337,8 +337,11 @@ async fn serve(args: ServeArgs) -> Result<()> {
 }
 
 async fn add_federation(args: AddFederationArgs, api_url: &str) -> Result<()> {
+    use std::str::FromStr;
     let client = api_client::ApiClient::new(api_url.to_string())?;
-    let response = client.add_federation(args.invite_code).await?;
+    let invite_code = fedimint_core::invite_code::InviteCode::from_str(&args.invite_code)
+        .context("Invalid invite code")?;
+    let response = client.add_federation(invite_code).await?;
     println!(
         "Successfully added federation: {} ({})",
         response.federation_id, response.name
@@ -374,11 +377,7 @@ async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()
                     "{:<20} {:<20} {:<15} {:<10}",
                     federation.id,
                     federation.name,
-                    federation
-                        .balance
-                        .get("sats")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0),
+                    federation.balance.as_sats(),
                     federation.status
                 );
             }
@@ -401,7 +400,7 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
                         serde_json::json!({
                             "federation_id": f.id,
                             "federation_name": f.name,
-                            "balance_sats": f.balance.get("sats").and_then(|v| v.as_u64()).unwrap_or(0),
+                            "balance_sats": f.balance.as_sats(),
                         })
                     })
                     .collect();
@@ -416,20 +415,13 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
                         "{:<20} {:<20} {:<15}",
                         federation.id,
                         federation.name,
-                        federation
-                            .balance
-                            .get("sats")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0)
+                        federation.balance.as_sats()
                     );
                 }
             }
         }
     } else {
-        let total_balance: u64 = federations
-            .iter()
-            .map(|f| f.balance.get("sats").and_then(|v| v.as_u64()).unwrap_or(0))
-            .sum();
+        let total_balance: u64 = federations.iter().map(|f| f.balance.as_sats()).sum();
 
         match args.format {
             OutputFormat::Json => {
@@ -636,10 +628,13 @@ async fn pay_invoice(args: PayInvoiceArgs, api_url: &str) -> Result<()> {
 }
 
 async fn create_invoice(args: CreateInvoiceArgs, api_url: &str) -> Result<()> {
+    use std::str::FromStr;
     let client = api_client::ApiClient::new(api_url.to_string())?;
+    let amount = Amount::from_str(&args.amount)
+        .context("Invalid amount format. Use formats like '100sat', '0.001btc', or '1000msat'")?;
     let request = api_client::CreateInvoiceRequest {
         federation_id: args.federation.map(FederationId::new),
-        amount: args.amount.clone(),
+        amount,
         description: Description::new(args.description.clone()),
         expiry: None, // TODO: Add expiry field to CreateInvoiceArgs if needed
     };

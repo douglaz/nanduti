@@ -4,6 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use strum::{Display, EnumString};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -31,7 +32,8 @@ pub struct Federation {
     pub client: Option<Arc<FedimintClientWrapper>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]
+#[strum(serialize_all = "PascalCase")]
 pub enum FederationStatus {
     Online,
     Offline,

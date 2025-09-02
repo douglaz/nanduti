@@ -1,34 +1,38 @@
 //! Data models for nanduti
 
-use anyhow::{bail, Result};
+use anyhow::Result;
+use fedimint_core::Amount as FedimintAmount;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use strum::{Display, EnumString};
 
-/// Amount in millisatoshis
+/// Amount wrapper around fedimint_core::Amount
+/// This provides compatibility while using Fedimint's robust parsing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Amount(pub u64);
+#[serde(transparent)]
+pub struct Amount(pub FedimintAmount);
 
 impl Amount {
     pub fn from_sats(sats: u64) -> Self {
-        Amount(sats * 1000)
+        Amount(FedimintAmount::from_sats(sats))
     }
 
     pub fn from_msats(msats: u64) -> Self {
-        Amount(msats)
+        Amount(FedimintAmount::from_msats(msats))
     }
 
     pub fn as_sats(&self) -> u64 {
-        self.0 / 1000
+        self.0.sats_round_down()
     }
 
     pub fn as_msats(&self) -> u64 {
-        self.0
+        self.0.msats
     }
 }
 
 impl std::fmt::Display for Amount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} msats", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -36,64 +40,19 @@ impl FromStr for Amount {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        // Remove whitespace
-        let s = s.trim();
+        Ok(Amount(FedimintAmount::from_str(s)?))
+    }
+}
 
-        // Try to parse different formats
-        if s.is_empty() {
-            bail!("Empty amount string");
-        }
+impl From<FedimintAmount> for Amount {
+    fn from(amt: FedimintAmount) -> Self {
+        Amount(amt)
+    }
+}
 
-        // Check for unit suffixes (case-insensitive)
-        let lower = s.to_lowercase();
-
-        if let Some(btc_str) = lower.strip_suffix("btc") {
-            // Bitcoin format (e.g., "0.001btc")
-            let btc: f64 = btc_str
-                .trim()
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid BTC amount: {btc_str}"))?;
-            if btc < 0.0 {
-                bail!("Negative amounts not allowed");
-            }
-            let sats = (btc * 100_000_000.0) as u64;
-            Ok(Amount::from_sats(sats))
-        } else if let Some(msats_str) = lower
-            .strip_suffix("msats")
-            .or_else(|| lower.strip_suffix("msat"))
-        {
-            // Millisatoshi format (e.g., "1000msats" or "1000msat")
-            let msats: u64 = msats_str
-                .trim()
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid msats amount: {msats_str}"))?;
-            Ok(Amount::from_msats(msats))
-        } else if let Some(sats_str) = lower
-            .strip_suffix("sats")
-            .or_else(|| lower.strip_suffix("sat"))
-        {
-            // Satoshi format (e.g., "100sats" or "100sat")
-            let sats: u64 = sats_str
-                .trim()
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid sats amount: {sats_str}"))?;
-            Ok(Amount::from_sats(sats))
-        } else {
-            // Try to parse as plain number (assume sats for backward compatibility)
-            match s.parse::<u64>() {
-                Ok(sats) => Ok(Amount::from_sats(sats)),
-                Err(_) => {
-                    // Try to parse as float (assume BTC)
-                    match s.parse::<f64>() {
-                        Ok(btc) if btc >= 0.0 => {
-                            let sats = (btc * 100_000_000.0) as u64;
-                            Ok(Amount::from_sats(sats))
-                        }
-                        _ => bail!("Invalid amount format: {s}. Use formats like '100sats', '0.001btc', or '1000msats'")
-                    }
-                }
-            }
-        }
+impl From<Amount> for FedimintAmount {
+    fn from(amt: Amount) -> Self {
+        amt.0
     }
 }
 
@@ -104,36 +63,26 @@ mod tests {
     #[test]
     fn test_amount_parsing() -> Result<()> {
         // Test satoshi formats
-        assert_eq!(Amount::from_str("100sats")?.as_sats(), 100);
         assert_eq!(Amount::from_str("100sat")?.as_sats(), 100);
-        assert_eq!(Amount::from_str("100SATS")?.as_sats(), 100);
-        assert_eq!(Amount::from_str(" 100 sats ")?.as_sats(), 100);
+        assert_eq!(Amount::from_str("100 sat")?.as_sats(), 100);
 
         // Test millisatoshi formats
-        assert_eq!(Amount::from_str("1000msats")?.as_msats(), 1000);
         assert_eq!(Amount::from_str("1000msat")?.as_msats(), 1000);
-        assert_eq!(Amount::from_str("2500MSATS")?.as_msats(), 2500);
+        assert_eq!(Amount::from_str("1000 msat")?.as_msats(), 1000);
 
         // Test bitcoin formats
         assert_eq!(Amount::from_str("0.001btc")?.as_sats(), 100_000);
         assert_eq!(Amount::from_str("0.00000001btc")?.as_sats(), 1);
-        assert_eq!(Amount::from_str("1BTC")?.as_sats(), 100_000_000);
-        assert_eq!(Amount::from_str("0.00001btc")?.as_sats(), 1000);
+        assert_eq!(Amount::from_str("1btc")?.as_sats(), 100_000_000);
+        assert_eq!(Amount::from_str("0.00001 btc")?.as_sats(), 1000);
 
-        // Test plain numbers (defaults to sats)
-        assert_eq!(Amount::from_str("42")?.as_sats(), 42);
-        assert_eq!(Amount::from_str("1000")?.as_sats(), 1000);
-
-        // Test float numbers (assumes BTC)
-        assert_eq!(Amount::from_str("0.001")?.as_sats(), 100_000);
-        assert_eq!(Amount::from_str("1.5")?.as_sats(), 150_000_000);
+        // Test plain numbers (defaults to millisats in Fedimint)
+        assert_eq!(Amount::from_str("42")?.as_msats(), 42);
+        assert_eq!(Amount::from_str("1000")?.as_msats(), 1000);
 
         // Test error cases
         assert!(Amount::from_str("").is_err());
-        assert!(Amount::from_str("-100sats").is_err());
-        assert!(Amount::from_str("-0.001btc").is_err());
         assert!(Amount::from_str("notanumber").is_err());
-        assert!(Amount::from_str("100xyz").is_err());
 
         Ok(())
     }
@@ -198,15 +147,17 @@ pub struct Transaction {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum TransactionType {
     Incoming,
     Outgoing,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum TransactionState {
     Pending,
     Settled,

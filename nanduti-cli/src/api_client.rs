@@ -41,13 +41,11 @@ impl ApiClient {
     // Federation management
 
     /// Add a new federation
-    pub async fn add_federation(&self, invite_code: String) -> Result<AddFederationResponse> {
-        use std::str::FromStr;
-        let invite = fedimint_core::invite_code::InviteCode::from_str(&invite_code)
-            .map_err(|e| anyhow!("Invalid invite code: {}", e))?;
-        let request = AddFederationRequest {
-            invite_code: invite,
-        };
+    pub async fn add_federation(
+        &self,
+        invite_code: fedimint_core::invite_code::InviteCode,
+    ) -> Result<AddFederationResponse> {
+        let request = AddFederationRequest { invite_code };
 
         let response = self
             .client
@@ -250,8 +248,8 @@ pub struct AddFederationResponse {
 pub struct FederationInfo {
     pub id: FederationId,
     pub name: FederationName,
-    pub balance: serde_json::Value, // Will deserialize as Amount in JSON
-    pub status: String,             // Will deserialize as FederationStatus string
+    pub balance: Amount,
+    pub status: nanduti_core::federation::FederationStatus,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -265,7 +263,7 @@ pub struct GatewayInfo {
 #[derive(Debug, Serialize)]
 pub struct CreateInvoiceRequest {
     pub federation_id: Option<FederationId>,
-    pub amount: String, // Keep as String for flexibility in parsing
+    pub amount: Amount,
     pub description: Description,
     pub expiry: Option<Expiry>,
 }
@@ -298,8 +296,8 @@ pub struct PayInvoiceResponse {
 pub struct TransactionInfo {
     pub id: TransactionId,
     pub federation_id: FederationId,
-    pub transaction_type: String, // Will deserialize as TransactionType string
-    pub state: String,            // Will deserialize as TransactionState string
+    pub transaction_type: TransactionType,
+    pub state: TransactionState,
     pub amount_sats: u64,
     pub description: Option<Description>,
     pub payment_hash: PaymentHash,
