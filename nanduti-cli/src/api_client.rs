@@ -244,8 +244,8 @@ pub struct AddFederationResponse {
 pub struct FederationInfo {
     pub id: String,
     pub name: String,
-    pub balance_sats: u64,
-    pub status: String,
+    pub balance: serde_json::Value, // Will deserialize as Amount in JSON
+    pub status: String,             // Will deserialize as FederationStatus string
 }
 
 #[derive(Debug, Deserialize, Serialize)]

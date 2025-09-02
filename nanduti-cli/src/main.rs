@@ -370,7 +370,14 @@ async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()
             for federation in federations {
                 println!(
                     "{:<20} {:<20} {:<15} {:<10}",
-                    federation.id, federation.name, federation.balance_sats, federation.status
+                    federation.id,
+                    federation.name,
+                    federation
+                        .balance
+                        .get("sats")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    federation.status
                 );
             }
         }
@@ -392,7 +399,7 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
                         serde_json::json!({
                             "federation_id": f.id,
                             "federation_name": f.name,
-                            "balance_sats": f.balance_sats,
+                            "balance_sats": f.balance.get("sats").and_then(|v| v.as_u64()).unwrap_or(0),
                         })
                     })
                     .collect();
@@ -405,13 +412,22 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
                 for federation in federations {
                     println!(
                         "{:<20} {:<20} {:<15}",
-                        federation.id, federation.name, federation.balance_sats
+                        federation.id,
+                        federation.name,
+                        federation
+                            .balance
+                            .get("sats")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0)
                     );
                 }
             }
         }
     } else {
-        let total_balance: u64 = federations.iter().map(|f| f.balance_sats).sum();
+        let total_balance: u64 = federations
+            .iter()
+            .map(|f| f.balance.get("sats").and_then(|v| v.as_u64()).unwrap_or(0))
+            .sum();
 
         match args.format {
             OutputFormat::Json => {

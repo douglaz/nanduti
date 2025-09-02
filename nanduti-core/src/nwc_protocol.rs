@@ -6,7 +6,8 @@ use strum::{Display, EnumString};
 
 use crate::lightning::PaymentResult;
 use crate::models::{
-    Amount, Bolt11String, Description, Expiry, Preimage, PublicKey, Timestamp, Transaction,
+    Amount, Bolt11String, Description, Expiry, PaymentHash, Preimage, PublicKey, Timestamp,
+    Transaction, TransactionState, TransactionType,
 };
 
 /// NWC request methods
@@ -81,75 +82,136 @@ impl NwcErrorCode {
     }
 }
 
+// Result types for NWC protocol responses
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayInvoiceResult {
+    pub preimage: Preimage,
+    pub fees_paid: Option<Amount>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetBalanceResult {
+    pub balance: Amount,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MakeInvoiceResult {
+    #[serde(rename = "type")]
+    pub invoice_type: String,
+    pub state: TransactionState,
+    pub invoice: Bolt11String,
+    pub description: Option<Description>,
+    pub payment_hash: PaymentHash,
+    pub amount: Option<Amount>,
+    pub created_at: Timestamp,
+    pub expires_at: Option<Timestamp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionInfo {
+    #[serde(rename = "type")]
+    pub transaction_type: TransactionType,
+    pub state: TransactionState,
+    pub invoice: Option<Bolt11String>,
+    pub description: Option<Description>,
+    pub preimage: Option<Preimage>,
+    pub payment_hash: PaymentHash,
+    pub amount: Amount,
+    pub fees_paid: Option<Amount>,
+    pub created_at: Timestamp,
+    pub settled_at: Option<Timestamp>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListTransactionsResult {
+    pub transactions: Vec<TransactionInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetInfoResult {
+    pub alias: String,
+    pub color: String,
+    pub pubkey: PublicKey,
+    pub network: String,
+    pub block_height: u64,
+    pub block_hash: String,
+    pub methods: Vec<String>,
+    pub notifications: Vec<String>,
+}
+
 impl NwcResponse {
     /// Create a successful pay_invoice response
     pub fn pay_invoice(result: PaymentResult) -> Self {
+        let pay_result = PayInvoiceResult {
+            preimage: result.preimage,
+            fees_paid: result.fees_paid,
+        };
         Self {
             result_type: "pay_invoice".to_string(),
             error: None,
-            result: Some(serde_json::json!({
-                "preimage": result.preimage,
-                "fees_paid": result.fees_paid.map(|a| a.as_msats()),
-            })),
+            result: Some(serde_json::to_value(pay_result).unwrap()),
         }
     }
 
     /// Create a successful get_balance response
     pub fn get_balance(balance_msats: u64) -> Self {
+        let balance_result = GetBalanceResult {
+            balance: Amount::from_msats(balance_msats),
+        };
         Self {
             result_type: "get_balance".to_string(),
             error: None,
-            result: Some(serde_json::json!({
-                "balance": balance_msats,
-            })),
+            result: Some(serde_json::to_value(balance_result).unwrap()),
         }
     }
 
     /// Create a successful make_invoice response
     pub fn make_invoice(invoice: crate::models::Invoice, transaction: Transaction) -> Self {
+        let make_result = MakeInvoiceResult {
+            invoice_type: "incoming".to_string(),
+            state: transaction.state,
+            invoice: invoice.bolt11,
+            description: invoice.description,
+            payment_hash: invoice.payment_hash,
+            amount: invoice.amount,
+            created_at: transaction.created_at,
+            expires_at: invoice.expiry.map(|e| transaction.created_at + e.0),
+        };
         Self {
             result_type: "make_invoice".to_string(),
             error: None,
-            result: Some(serde_json::json!({
-                "type": "incoming",
-                "state": transaction.state,
-                "invoice": invoice.bolt11.0,
-                "description": invoice.description.as_ref().map(|d| &d.0),
-                "payment_hash": invoice.payment_hash.0,
-                "amount": invoice.amount.map(|a| a.as_msats()),
-                "created_at": transaction.created_at,
-                "expires_at": invoice.expiry.as_ref().map(|e| transaction.created_at + e.0),
-            })),
+            result: Some(serde_json::to_value(make_result).unwrap()),
         }
     }
 
     /// Create a successful list_transactions response
     pub fn list_transactions(transactions: Vec<Transaction>) -> Self {
-        let tx_list: Vec<Value> = transactions
+        let tx_list: Vec<TransactionInfo> = transactions
             .into_iter()
-            .map(|tx| {
-                serde_json::json!({
-                    "type": tx.transaction_type,
-                    "state": tx.state,
-                    "invoice": tx.invoice,
-                    "description": tx.description,
-                    "preimage": tx.preimage,
-                    "payment_hash": tx.payment_hash.0,
-                    "amount": tx.amount.as_msats(),
-                    "fees_paid": tx.fees_paid.map(|a| a.as_msats()),
-                    "created_at": tx.created_at,
-                    "settled_at": tx.settled_at,
-                    "metadata": tx.metadata,
-                })
+            .map(|tx| TransactionInfo {
+                transaction_type: tx.transaction_type,
+                state: tx.state,
+                invoice: tx.invoice,
+                description: tx.description,
+                preimage: tx.preimage,
+                payment_hash: tx.payment_hash,
+                amount: tx.amount,
+                fees_paid: tx.fees_paid,
+                created_at: tx.created_at,
+                settled_at: tx.settled_at,
+                metadata: tx.metadata,
             })
             .collect();
+
+        let list_result = ListTransactionsResult {
+            transactions: tx_list,
+        };
 
         Self {
             result_type: "list_transactions".to_string(),
             error: None,
-            result: Some(serde_json::json!({
-                "transactions": tx_list,
-            })),
+            result: Some(serde_json::to_value(list_result).unwrap()),
         }
     }
 
@@ -161,19 +223,21 @@ impl NwcResponse {
         methods: Vec<String>,
         notifications: Vec<String>,
     ) -> Self {
+        let info_result = GetInfoResult {
+            alias: "Nanduti".to_string(),
+            color: "#FF6B00".to_string(),
+            pubkey: PublicKey::new(pubkey),
+            network,
+            block_height,
+            block_hash: "000000000000000000000000000000000000000000000000000000000000000"
+                .to_string(),
+            methods,
+            notifications,
+        };
         Self {
             result_type: "get_info".to_string(),
             error: None,
-            result: Some(serde_json::json!({
-                "alias": "Nanduti",
-                "color": "#FF6B00",
-                "pubkey": pubkey,
-                "network": network,
-                "block_height": block_height,
-                "block_hash": "000000000000000000000000000000000000000000000000000000000000000",
-                "methods": methods,
-                "notifications": notifications,
-            })),
+            result: Some(serde_json::to_value(info_result).unwrap()),
         }
     }
 
@@ -243,4 +307,43 @@ pub struct TlvRecord {
     #[serde(rename = "type")]
     pub tlv_type: u64,
     pub value: String, // hex encoded
+}
+
+// Notification types for Nostr client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NostrNotification {
+    pub notification_type: String,
+    pub notification: NotificationData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum NotificationData {
+    PaymentReceived(PaymentReceivedNotification),
+    PaymentSent(PaymentSentNotification),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymentReceivedNotification {
+    #[serde(rename = "type")]
+    pub payment_type: String,
+    pub state: TransactionState,
+    pub invoice: Bolt11String,
+    pub payment_hash: PaymentHash,
+    pub preimage: Preimage,
+    pub amount: Amount,
+    pub settled_at: Timestamp,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymentSentNotification {
+    #[serde(rename = "type")]
+    pub payment_type: String,
+    pub state: TransactionState,
+    pub invoice: Bolt11String,
+    pub payment_hash: PaymentHash,
+    pub preimage: Preimage,
+    pub amount: Amount,
+    pub fees_paid: Option<Amount>,
+    pub settled_at: Timestamp,
 }

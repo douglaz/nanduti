@@ -8,17 +8,16 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::fedimint_client::FedimintClientWrapper;
-use crate::models::Timestamp;
-use crate::models::{Amount, FederationMetrics};
+use crate::models::{Amount, FederationId, FederationMetrics, FederationName, Timestamp};
 use crate::storage::Storage;
 
 /// A single federation instance
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Federation {
     /// Federation ID from invite code
-    pub id: String,
+    pub id: FederationId,
     /// Federation name from configuration
-    pub name: String,
+    pub name: FederationName,
     /// Original invite code
     pub invite_code: String,
     /// Current balance in this federation
@@ -42,7 +41,7 @@ pub enum FederationStatus {
 
 /// Manages multiple federations
 pub struct FederationManager {
-    federations: Arc<RwLock<HashMap<String, Federation>>>,
+    federations: Arc<RwLock<HashMap<FederationId, Arc<Federation>>>>,
     storage: Option<Arc<Storage>>,
     data_dir: Option<std::path::PathBuf>,
 }
@@ -96,7 +95,7 @@ impl FederationManager {
                     }
                 }
 
-                federations.insert(federation.id.clone(), federation);
+                federations.insert(federation.id.clone(), Arc::new(federation));
             }
         }
 
@@ -104,7 +103,7 @@ impl FederationManager {
     }
 
     /// Add a new federation from invite code
-    pub async fn add_federation(&self, invite_code: &str) -> Result<String> {
+    pub async fn add_federation(&self, invite_code: &str) -> Result<FederationId> {
         info!("Adding federation from invite code");
 
         // Parse invite code to get federation ID and name
@@ -121,7 +120,7 @@ impl FederationManager {
         // Create federation entry
         let mut federation = Federation {
             id: federation_id.clone(),
-            name: federation_name,
+            name: federation_name.clone(),
             invite_code: invite_code.to_string(),
             balance: Amount::from_msats(0),
             status: FederationStatus::Initializing,
@@ -153,40 +152,42 @@ impl FederationManager {
         federation.client = Some(Arc::new(client));
 
         // Store federation
+        let federation_arc = Arc::new(federation);
         {
             let mut federations = self.federations.write().await;
-            federations.insert(federation_id.clone(), federation.clone());
+            federations.insert(federation_id.clone(), federation_arc.clone());
         }
 
         // Persist if storage is available
         if let Some(storage) = &self.storage {
-            storage.store_federation(&federation)?;
+            storage.store_federation(&federation_arc)?;
         }
 
         info!(
             "Successfully added federation: {federation_id} ({federation_name})",
-            federation_name = federation.name
+            federation_name = federation_arc.name
         );
         Ok(federation_id)
     }
 
     /// Remove a federation
     pub async fn remove_federation(&self, federation_id: &str) -> Result<()> {
+        let federation_id = FederationId(federation_id.to_string());
         let mut federations = self.federations.write().await;
 
         let federation = federations
-            .remove(federation_id)
-            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
+            .remove(&federation_id)
+            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
 
         // Cleanup client if needed
-        if let Some(_client) = federation.client {
+        if let Some(_client) = &federation.client {
             // Perform any cleanup operations
-            debug!("Cleaning up federation client for {federation_id}");
+            debug!("Cleaning up federation client for {}", federation_id);
         }
 
         // Remove from storage
         if let Some(storage) = &self.storage {
-            storage.remove_federation(federation_id)?;
+            storage.remove_federation(&federation_id.0)?;
         }
 
         info!("Removed federation: {federation_id}");
@@ -196,16 +197,17 @@ impl FederationManager {
     /// List all federations
     pub async fn list_federations(&self) -> Vec<Federation> {
         let federations = self.federations.read().await;
-        federations.values().cloned().collect()
+        federations.values().map(|f| f.as_ref().clone()).collect()
     }
 
     /// Get a specific federation
     pub async fn get_federation(&self, federation_id: &str) -> Result<Federation> {
+        let federation_id = FederationId(federation_id.to_string());
         let federations = self.federations.read().await;
         federations
-            .get(federation_id)
-            .cloned()
-            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))
+            .get(&federation_id)
+            .map(|f| f.as_ref().clone())
+            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))
     }
 
     /// Get aggregate balance across all federations
@@ -221,11 +223,14 @@ impl FederationManager {
 
     /// Update federation balance
     pub async fn update_balance(&self, federation_id: &str) -> Result<Amount> {
+        let federation_id = FederationId(federation_id.to_string());
         let mut federations = self.federations.write().await;
 
-        let federation = federations
-            .get_mut(federation_id)
-            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
+        let federation_arc = federations
+            .get_mut(&federation_id)
+            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
+
+        let federation = Arc::make_mut(federation_arc);
 
         if let Some(client) = &federation.client {
             federation.balance = client.get_balance().await?;
@@ -247,12 +252,14 @@ impl FederationManager {
         federation_id: &str,
         metrics: FederationMetrics,
     ) -> Result<()> {
+        let federation_id = FederationId(federation_id.to_string());
         let mut federations = self.federations.write().await;
 
-        let federation = federations
-            .get_mut(federation_id)
-            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
+        let federation_arc = federations
+            .get_mut(&federation_id)
+            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
 
+        let federation = Arc::make_mut(federation_arc);
         federation.metrics = metrics;
 
         // Update storage
@@ -265,11 +272,12 @@ impl FederationManager {
 
     /// Check federation health
     pub async fn check_health(&self, federation_id: &str) -> Result<FederationStatus> {
+        let federation_id = FederationId(federation_id.to_string());
         let federations = self.federations.read().await;
 
         let federation = federations
-            .get(federation_id)
-            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
+            .get(&federation_id)
+            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
 
         if let Some(client) = &federation.client {
             // Try to get balance as a health check
@@ -286,19 +294,20 @@ impl FederationManager {
     }
 
     /// Parse invite code to extract federation ID and name
-    fn parse_invite_code(&self, invite_code: &str) -> Result<(String, String)> {
+    fn parse_invite_code(&self, invite_code: &str) -> Result<(FederationId, FederationName)> {
         use fedimint_core::invite_code::InviteCode;
         use std::str::FromStr;
 
         // Parse the invite code using fedimint-core
         let invite = InviteCode::from_str(invite_code).context("Failed to parse invite code")?;
 
-        let federation_id = invite.federation_id().to_string();
+        let federation_id_str = invite.federation_id().to_string();
+        let federation_id = FederationId(federation_id_str.clone());
 
         // Try to extract federation name from the invite code
         // This would typically come from the federation config after joining
-        let federation_prefix = &federation_id[0..8.min(federation_id.len())];
-        let federation_name = format!("Federation {federation_prefix}");
+        let federation_prefix = &federation_id_str[0..8.min(federation_id_str.len())];
+        let federation_name = FederationName(format!("Federation {federation_prefix}"));
 
         Ok((federation_id, federation_name))
     }
@@ -309,7 +318,7 @@ impl FederationManager {
         federations
             .values()
             .filter(|f| f.status == FederationStatus::Online && f.balance >= amount)
-            .cloned()
+            .map(|f| f.as_ref().clone())
             .collect()
     }
 }

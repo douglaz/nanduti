@@ -74,6 +74,13 @@ async fn handle_nostr_events(client: Arc<NostrClient>, handler: Arc<NwcHandler>)
     client.handle_nwc_events(handler).await
 }
 
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+struct HealthResponse {
+    status: &'static str,
+}
+
 /// Create HTTP router with all REST API endpoints
 fn create_http_router(app_state: Arc<AppState>) -> axum::Router {
     use axum::{
@@ -85,7 +92,7 @@ fn create_http_router(app_state: Arc<AppState>) -> axum::Router {
         // Health check
         .route(
             "/health",
-            get(|| async { Json(serde_json::json!({ "status": "ok" })) }),
+            get(|| async { Json(HealthResponse { status: "ok" }) }),
         )
         // Federation management endpoints
         .route(

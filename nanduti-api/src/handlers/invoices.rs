@@ -102,6 +102,6 @@ pub async fn create_invoice(
         invoice: invoice.bolt11,
         payment_hash: invoice.payment_hash,
         amount,
-        federation_id: federation.id,
+        federation_id: federation.id.0,
     }))
 }

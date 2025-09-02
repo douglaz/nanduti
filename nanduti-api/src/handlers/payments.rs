@@ -120,6 +120,6 @@ pub async fn pay_invoice(
         preimage: result.preimage,
         amount_paid: result.amount_paid,
         fees_paid: result.fees_paid,
-        federation_id: federation.id,
+        federation_id: federation.id.0,
     }))
 }

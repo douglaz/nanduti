@@ -116,15 +116,15 @@ impl NostrClient {
         &self,
         recipient_pubkey: &PublicKey,
         notification_type: &str,
-        notification_data: serde_json::Value,
+        notification_data: nanduti_core::nwc_protocol::NotificationData,
     ) -> Result<()> {
         use crate::encryption;
 
         // Create notification payload
-        let notification = serde_json::json!({
-            "notification_type": notification_type,
-            "notification": notification_data,
-        });
+        let notification = nanduti_core::nwc_protocol::NostrNotification {
+            notification_type: notification_type.to_string(),
+            notification: notification_data,
+        };
 
         let content = serde_json::to_string(&notification)?;
 
@@ -162,16 +162,19 @@ impl NostrClient {
         amount_msats: u64,
         preimage: &str,
     ) -> Result<()> {
-        let notification_data = serde_json::json!({
-            "type": "incoming",
-            "state": "settled",
-            "invoice": invoice,
-            "payment_hash": payment_hash,
-            "preimage": preimage,
-            "amount": amount_msats,
-            "settled_at": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs(),
+        use nanduti_core::models::{
+            Amount, Bolt11String, PaymentHash, Preimage, Timestamp, TransactionState,
+        };
+        use nanduti_core::nwc_protocol::{NotificationData, PaymentReceivedNotification};
+
+        let notification_data = NotificationData::PaymentReceived(PaymentReceivedNotification {
+            payment_type: "incoming".to_string(),
+            state: TransactionState::Settled,
+            invoice: Bolt11String::new(invoice.to_string()),
+            payment_hash: PaymentHash::new(payment_hash.to_string()),
+            preimage: Preimage::new(preimage.to_string()),
+            amount: Amount::from_msats(amount_msats),
+            settled_at: Timestamp::now(),
         });
 
         self.send_notification(recipient_pubkey, "payment_received", notification_data)
@@ -188,17 +191,20 @@ impl NostrClient {
         fees_paid_msats: Option<u64>,
         preimage: &str,
     ) -> Result<()> {
-        let notification_data = serde_json::json!({
-            "type": "outgoing",
-            "state": "settled",
-            "invoice": invoice,
-            "payment_hash": payment_hash,
-            "preimage": preimage,
-            "amount": amount_msats,
-            "fees_paid": fees_paid_msats,
-            "settled_at": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs(),
+        use nanduti_core::models::{
+            Amount, Bolt11String, PaymentHash, Preimage, Timestamp, TransactionState,
+        };
+        use nanduti_core::nwc_protocol::{NotificationData, PaymentSentNotification};
+
+        let notification_data = NotificationData::PaymentSent(PaymentSentNotification {
+            payment_type: "outgoing".to_string(),
+            state: TransactionState::Settled,
+            invoice: Bolt11String::new(invoice.to_string()),
+            payment_hash: PaymentHash::new(payment_hash.to_string()),
+            preimage: Preimage::new(preimage.to_string()),
+            amount: Amount::from_msats(amount_msats),
+            fees_paid: fees_paid_msats.map(Amount::from_msats),
+            settled_at: Timestamp::now(),
         });
 
         self.send_notification(recipient_pubkey, "payment_sent", notification_data)

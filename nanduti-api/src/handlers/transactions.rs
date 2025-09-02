@@ -49,7 +49,7 @@ pub async fn list_transactions(
         for federation in federations {
             if let Ok(txs) = state
                 .storage
-                .get_federation_transactions(&federation.id, None)
+                .get_federation_transactions(&federation.id.0, None)
             {
                 all_transactions.extend(txs);
             }
@@ -69,7 +69,7 @@ pub async fn list_transactions(
         .into_iter()
         .map(|tx| TransactionInfo {
             id: tx.id.to_string(),
-            federation_id: tx.federation_id,
+            federation_id: tx.federation_id.0,
             transaction_type: format!("{:?}", tx.transaction_type),
             state: format!("{:?}", tx.state),
             amount_sats: tx.amount.as_sats(),

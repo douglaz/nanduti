@@ -5,7 +5,10 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use nanduti_core::models::GatewayVettingStatus;
+use nanduti_core::{
+    federation::FederationStatus,
+    models::{Amount, FederationId, FederationName, GatewayVettingStatus},
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -24,10 +27,16 @@ pub struct AddFederationResponse {
 
 #[derive(Debug, Serialize)]
 pub struct FederationInfo {
-    pub id: String,
-    pub name: String,
-    pub balance_sats: u64,
-    pub status: String,
+    pub id: FederationId,
+    pub name: FederationName,
+    pub balance: Amount,
+    pub status: FederationStatus,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BalanceResponse {
+    pub federation_id: FederationId,
+    pub balance_msats: Amount,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,13 +62,13 @@ pub async fn add_federation(
     // Get federation details for response
     let federation = state
         .federation_manager
-        .get_federation(&federation_id)
+        .get_federation(&federation_id.0)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(AddFederationResponse {
-        federation_id,
-        name: federation.name,
+        federation_id: federation_id.0,
+        name: federation.name.0,
     }))
 }
 
@@ -70,10 +79,10 @@ pub async fn list_federations(State(state): State<Arc<AppState>>) -> Json<Vec<Fe
     let infos: Vec<FederationInfo> = federations
         .into_iter()
         .map(|f| FederationInfo {
-            id: f.id,
-            name: f.name,
-            balance_sats: f.balance.as_sats(),
-            status: format!("{:?}", f.status),
+            id: f.id.clone(),
+            name: f.name.clone(),
+            balance: f.balance,
+            status: f.status,
         })
         .collect();
 
@@ -92,10 +101,10 @@ pub async fn get_federation(
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     Ok(Json(FederationInfo {
-        id: federation.id,
-        name: federation.name,
-        balance_sats: federation.balance.as_sats(),
-        status: format!("{:?}", federation.status),
+        id: federation.id.clone(),
+        name: federation.name.clone(),
+        balance: federation.balance,
+        status: federation.status,
     }))
 }
 
@@ -117,18 +126,17 @@ pub async fn remove_federation(
 pub async fn get_federation_balance(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<BalanceResponse>, (StatusCode, String)> {
     let balance = state
         .federation_manager
         .update_balance(&id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
-    Ok(Json(serde_json::json!({
-        "federation_id": id,
-        "balance_sats": balance.as_sats(),
-        "balance_msats": balance.as_msats(),
-    })))
+    Ok(Json(BalanceResponse {
+        federation_id: FederationId(id),
+        balance_msats: balance,
+    }))
 }
 
 /// List federation gateways

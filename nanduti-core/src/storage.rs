@@ -71,7 +71,7 @@ impl Storage {
     pub fn store_federation(&self, federation: &Federation) -> Result<()> {
         if let Some(tree) = &self.federations {
             let data = serde_json::to_vec(federation).context("Failed to serialize federation")?;
-            tree.insert(federation.id.as_bytes(), data)
+            tree.insert(federation.id.0.as_bytes(), data)
                 .context("Failed to store federation")?;
             let federation_id = &federation.id;
             debug!("Stored federation: {federation_id}");
@@ -147,7 +147,7 @@ impl Storage {
                 let transaction: Transaction =
                     serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
 
-                if transaction.federation_id == federation_id {
+                if transaction.federation_id.0 == federation_id {
                     transactions.push(transaction);
 
                     if let Some(limit) = limit {

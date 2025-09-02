@@ -220,7 +220,7 @@ impl NwcHandler {
         if let Some(storage) = &self.storage {
             for federation in self.federation_manager.list_federations().await {
                 let transactions =
-                    storage.get_federation_transactions(&federation.id, params.limit)?;
+                    storage.get_federation_transactions(&federation.id.0, params.limit)?;
                 all_transactions.extend(transactions);
             }
         }

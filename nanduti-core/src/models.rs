@@ -154,7 +154,7 @@ pub struct Invoice {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub id: TransactionId,
-    pub federation_id: String, // TODO: Use FederationId from fedimint_core when available in this context
+    pub federation_id: FederationId,
     pub transaction_type: TransactionType,
     pub state: TransactionState,
     pub invoice: Option<Bolt11String>,
@@ -338,5 +338,39 @@ impl Expiry {
 
     pub fn as_secs(&self) -> u64 {
         self.0
+    }
+}
+
+/// Federation identifier
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FederationId(pub String);
+
+impl FederationId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for FederationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Federation name
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FederationName(pub String);
+
+impl FederationName {
+    pub fn new(name: String) -> Self {
+        Self(name)
+    }
+}
+
+impl std::fmt::Display for FederationName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
