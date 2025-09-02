@@ -18,11 +18,11 @@ pub struct CreateInvoiceRequest {
 
 #[derive(Debug, Serialize)]
 pub struct CreateInvoiceResponse {
-    pub invoice: String,
+    pub invoice: String, // Keep as String for API compatibility
     pub payment_hash: String,
     pub amount_sats: u64,
     pub amount_msats: u64,
-    pub federation_id: String,
+    pub federation_id: String, // Keep as String for API serialization
 }
 
 /// Create a Lightning invoice

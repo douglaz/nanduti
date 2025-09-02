@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::str::FromStr;
 use strum::{Display, EnumString};
 
 use crate::lightning::PaymentResult;
@@ -191,21 +192,36 @@ impl NwcResponse {
 /// NWC pay_invoice parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayInvoiceParams {
-    pub invoice: String,
+    pub invoice: String, // Keep as String for protocol compatibility
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<u64>, // msats
+}
+
+impl PayInvoiceParams {
+    /// Parse and validate the invoice
+    pub fn validate_invoice(&self) -> Result<lightning_invoice::Bolt11Invoice, String> {
+        lightning_invoice::Bolt11Invoice::from_str(&self.invoice)
+            .map_err(|e| format!("Invalid invoice: {e}"))
+    }
 }
 
 /// NWC make_invoice parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MakeInvoiceParams {
-    pub amount: u64, // msats
+    pub amount: u64, // msats - kept as u64 for protocol compatibility
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expiry: Option<u64>, // seconds
+}
+
+impl MakeInvoiceParams {
+    /// Get amount as Amount type
+    pub fn amount(&self) -> crate::models::Amount {
+        crate::models::Amount::from_msats(self.amount)
+    }
 }
 
 /// NWC list_transactions parameters
