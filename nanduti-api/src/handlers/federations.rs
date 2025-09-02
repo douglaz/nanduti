@@ -21,8 +21,8 @@ pub struct AddFederationRequest {
 
 #[derive(Debug, Serialize)]
 pub struct AddFederationResponse {
-    pub federation_id: String,
-    pub name: String,
+    pub federation_id: FederationId,
+    pub name: FederationName,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,8 +67,8 @@ pub async fn add_federation(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(AddFederationResponse {
-        federation_id: federation_id.0,
-        name: federation.name.0,
+        federation_id,
+        name: federation.name,
     }))
 }
 

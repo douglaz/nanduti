@@ -2,7 +2,7 @@
 
 use axum::{extract::State, http::StatusCode, Json};
 use nanduti_core::models::{
-    Amount, Bolt11String, Description, PaymentHash, Timestamp, TransactionId,
+    Amount, Bolt11String, Description, FederationId, PaymentHash, Timestamp, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -23,7 +23,7 @@ pub struct CreateInvoiceResponse {
     pub invoice: Bolt11String,
     pub payment_hash: PaymentHash,
     pub amount: Amount,
-    pub federation_id: String, // From federation, already a String
+    pub federation_id: FederationId,
 }
 
 /// Create a Lightning invoice
@@ -102,6 +102,6 @@ pub async fn create_invoice(
         invoice: invoice.bolt11,
         payment_hash: invoice.payment_hash,
         amount,
-        federation_id: federation.id.0,
+        federation_id: federation.id,
     }))
 }
