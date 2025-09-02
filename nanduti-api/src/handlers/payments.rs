@@ -3,8 +3,7 @@
 use axum::{extract::State, http::StatusCode, Json};
 use lightning_invoice::Bolt11Invoice;
 use nanduti_core::models::{
-    Amount, Bolt11String, Description, FederationId, Invoice, PaymentHash, Preimage, PublicKey,
-    Timestamp, TransactionId,
+    Amount, Bolt11String, FederationId, Invoice, PaymentHash, Preimage, Timestamp, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -36,19 +35,7 @@ pub async fn pay_invoice(
     let bolt11 = Bolt11Invoice::from_str(&req.invoice)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid invoice: {}", e)))?;
 
-    let invoice = Invoice {
-        bolt11: Bolt11String(req.invoice.clone()),
-        payment_hash: PaymentHash(hex::encode(bolt11.payment_hash().as_ref() as &[u8])),
-        amount: bolt11.amount_milli_satoshis().map(Amount::from_msats),
-        description: match bolt11.description() {
-            lightning_invoice::Bolt11InvoiceDescriptionRef::Direct(desc) => {
-                Some(Description(desc.to_string()))
-            }
-            lightning_invoice::Bolt11InvoiceDescriptionRef::Hash(_) => None,
-        },
-        expiry: None,
-        payee_pubkey: bolt11.payee_pub_key().map(|k| PublicKey(k.to_string())),
-    };
+    let invoice = Invoice::from(&bolt11);
 
     // Select federation
     let federation = if let Some(fed_id) = req.federation_id {

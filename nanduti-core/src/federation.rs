@@ -74,11 +74,7 @@ impl FederationManager {
                 info!("Loading federation: {federation_id} ({federation_name})");
 
                 // Re-initialize the client for each federation
-                match FedimintClientWrapper::new(
-                    &federation.invite_code.to_string(),
-                    data_dir.as_deref(),
-                )
-                .await
+                match FedimintClientWrapper::new(&federation.invite_code, data_dir.as_deref()).await
                 {
                     Ok(client) => {
                         // Update balance
@@ -141,7 +137,7 @@ impl FederationManager {
         };
 
         // Initialize Fedimint client
-        let client = FedimintClientWrapper::new(&invite.to_string(), self.data_dir.as_deref())
+        let client = FedimintClientWrapper::new(&invite, self.data_dir.as_deref())
             .await
             .context("Failed to initialize Fedimint client")?;
 

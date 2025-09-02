@@ -17,8 +17,8 @@ use fedimint_wallet_client::WalletClientInit;
 use lightning_invoice::Bolt11Invoice;
 use rand::rngs::OsRng;
 use rand::seq::IteratorRandom;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use tracing::info;
 
@@ -41,11 +41,8 @@ pub struct FedimintClientWrapper {
 
 impl FedimintClientWrapper {
     /// Create a new Fedimint client from invite code
-    pub async fn new(invite_code: &str, data_dir: Option<&Path>) -> Result<Self> {
+    pub async fn new(invite: &InviteCode, data_dir: Option<&Path>) -> Result<Self> {
         info!("Initializing Fedimint client from invite code");
-
-        // Parse the invite code
-        let invite = InviteCode::from_str(invite_code).context("Failed to parse invite code")?;
 
         let federation_id = invite.federation_id();
 
@@ -197,9 +194,8 @@ impl FedimintClientWrapper {
 
     /// Pay a lightning invoice
     pub async fn pay_invoice(&self, invoice: &Invoice) -> Result<PaymentResult> {
-        // Parse the BOLT11 invoice
-        let bolt11 =
-            Bolt11Invoice::from_str(&invoice.bolt11.0).context("Failed to parse BOLT11 invoice")?;
+        // Convert to Bolt11Invoice
+        let bolt11 = Bolt11Invoice::try_from(invoice).context("Failed to parse BOLT11 invoice")?;
 
         // Get the lightning module
         let ln_module = self

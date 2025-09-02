@@ -150,6 +150,36 @@ pub struct Invoice {
     pub payee_pubkey: Option<PublicKey>,
 }
 
+impl From<&lightning_invoice::Bolt11Invoice> for Invoice {
+    fn from(bolt11: &lightning_invoice::Bolt11Invoice) -> Self {
+        use hex;
+
+        Invoice {
+            bolt11: Bolt11String(bolt11.to_string()),
+            payment_hash: PaymentHash(hex::encode(bolt11.payment_hash().as_ref() as &[u8])),
+            amount: bolt11.amount_milli_satoshis().map(Amount::from_msats),
+            description: match bolt11.description() {
+                lightning_invoice::Bolt11InvoiceDescriptionRef::Direct(desc) => {
+                    Some(Description(desc.to_string()))
+                }
+                lightning_invoice::Bolt11InvoiceDescriptionRef::Hash(_) => None,
+            },
+            expiry: Some(Expiry(bolt11.expiry_time().as_secs())),
+            payee_pubkey: bolt11.payee_pub_key().map(|k| PublicKey(k.to_string())),
+        }
+    }
+}
+
+impl TryFrom<&Invoice> for lightning_invoice::Bolt11Invoice {
+    type Error = anyhow::Error;
+
+    fn try_from(invoice: &Invoice) -> Result<Self> {
+        use std::str::FromStr;
+        lightning_invoice::Bolt11Invoice::from_str(invoice.bolt11.as_str())
+            .map_err(|e| anyhow::anyhow!("Failed to parse BOLT11 invoice: {}", e))
+    }
+}
+
 /// Transaction record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
