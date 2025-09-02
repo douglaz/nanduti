@@ -10,6 +10,9 @@ license = "MIT OR Apache-2.0"
 # Internal
 nanduti-core = { path = "../nanduti-core" }
 
+# Fedimint types
+fedimint-core = { workspace = true }
+
 # Nostr
 nostr-sdk = { workspace = true }
 nostr = { workspace = true }

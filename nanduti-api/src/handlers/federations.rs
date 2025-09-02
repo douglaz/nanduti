@@ -7,7 +7,9 @@ use axum::{
 };
 use nanduti_core::{
     federation::FederationStatus,
-    models::{Amount, FederationId, FederationName, GatewayVettingStatus},
+    models::{
+        Amount, FederationId, FederationName, GatewayApiUrl, GatewayId, GatewayVettingStatus,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -16,7 +18,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct AddFederationRequest {
-    pub invite_code: String,
+    pub invite_code: fedimint_core::invite_code::InviteCode,
 }
 
 #[derive(Debug, Serialize)]
@@ -41,8 +43,8 @@ pub struct BalanceResponse {
 
 #[derive(Debug, Serialize)]
 pub struct GatewayInfo {
-    pub gateway_id: String,
-    pub api: String,
+    pub gateway_id: GatewayId,
+    pub api: GatewayApiUrl,
     pub base_fee_msat: u32,
     pub proportional_fee_ppm: u32,
     pub vetting_status: GatewayVettingStatus,
@@ -55,7 +57,7 @@ pub async fn add_federation(
 ) -> Result<Json<AddFederationResponse>, (StatusCode, String)> {
     let federation_id = state
         .federation_manager
-        .add_federation(&req.invite_code)
+        .add_federation(&req.invite_code.to_string())
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
@@ -159,8 +161,8 @@ pub async fn list_federation_gateways(
         let infos: Vec<GatewayInfo> = gateways_with_status
             .into_iter()
             .map(|(g, vetting_status)| GatewayInfo {
-                gateway_id: g.info.gateway_id.to_string(),
-                api: g.info.api.to_string(),
+                gateway_id: GatewayId::new(g.info.gateway_id.to_string()),
+                api: GatewayApiUrl::new(g.info.api.to_string()),
                 base_fee_msat: g.info.fees.base_msat,
                 proportional_fee_ppm: g.info.fees.proportional_millionths,
                 vetting_status,

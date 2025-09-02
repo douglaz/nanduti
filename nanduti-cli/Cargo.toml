@@ -11,8 +11,12 @@ name = "nanduti"
 path = "src/main.rs"
 
 [dependencies]
-# Internal - Only API needed for CLI (no direct core access)
+# Internal - Both API and Core for strong types
 nanduti-api = { path = "../nanduti-api" }
+nanduti-core = { path = "../nanduti-core" }
+
+# Fedimint types
+fedimint-core = { workspace = true }
 
 # CLI
 clap = { workspace = true }

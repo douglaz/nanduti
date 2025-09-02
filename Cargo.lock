@@ -3889,8 +3889,10 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "fedimint-core",
  "hex",
  "nanduti-api",
+ "nanduti-core",
  "reqwest 0.12.23",
  "rmcp",
  "schemars 0.8.22",
@@ -3908,6 +3910,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "fedimint-core",
  "futures",
  "hex",
  "lightning-invoice",

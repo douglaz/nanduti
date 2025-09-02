@@ -253,6 +253,12 @@ impl PaymentHash {
     }
 }
 
+impl std::fmt::Display for PaymentHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Payment preimage
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -261,6 +267,12 @@ pub struct Preimage(pub String);
 impl Preimage {
     pub fn new(preimage: String) -> Self {
         Self(preimage)
+    }
+}
+
+impl std::fmt::Display for Preimage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -293,6 +305,12 @@ impl Bolt11String {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl std::fmt::Display for Bolt11String {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -400,6 +418,125 @@ impl FederationName {
 }
 
 impl std::fmt::Display for FederationName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Gateway identifier
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct GatewayId(pub String);
+
+impl GatewayId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for GatewayId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// NWC Connection identifier
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ConnectionId(pub String);
+
+impl ConnectionId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for ConnectionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Connection name
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ConnectionName(pub String);
+
+impl ConnectionName {
+    pub fn new(name: String) -> Self {
+        Self(name)
+    }
+}
+
+impl std::fmt::Display for ConnectionName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Lightning address (LUD16)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LightningAddress(pub String);
+
+impl LightningAddress {
+    pub fn new(address: String) -> Self {
+        Self(address)
+    }
+}
+
+impl std::fmt::Display for LightningAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Nostr relay URL
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RelayUrl(pub String);
+
+impl RelayUrl {
+    pub fn new(url: String) -> Self {
+        Self(url)
+    }
+}
+
+impl std::fmt::Display for RelayUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Gateway API URL
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct GatewayApiUrl(pub String);
+
+impl GatewayApiUrl {
+    pub fn new(url: String) -> Self {
+        Self(url)
+    }
+}
+
+impl std::fmt::Display for GatewayApiUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Connection URI for NWC
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ConnectionUri(pub String);
+
+impl ConnectionUri {
+    pub fn new(uri: String) -> Self {
+        Self(uri)
+    }
+}
+
+impl std::fmt::Display for ConnectionUri {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }

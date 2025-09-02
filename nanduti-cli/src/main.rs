@@ -5,6 +5,7 @@ mod api_client;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use nanduti_api::RoutingStrategy;
+use nanduti_core::models::*;
 use std::path::PathBuf;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -347,7 +348,8 @@ async fn add_federation(args: AddFederationArgs, api_url: &str) -> Result<()> {
 
 async fn remove_federation(args: RemoveFederationArgs, api_url: &str) -> Result<()> {
     let client = api_client::ApiClient::new(api_url.to_string())?;
-    client.remove_federation(&args.federation).await?;
+    let federation_id = FederationId::new(args.federation.clone());
+    client.remove_federation(&federation_id).await?;
     println!("Successfully removed federation: {}", args.federation);
     Ok(())
 }
@@ -451,7 +453,8 @@ async fn list_gateways(args: GatewaysArgs, api_url: &str) -> Result<()> {
     let client = api_client::ApiClient::new(api_url.to_string())?;
 
     let federations = if let Some(fed_id) = args.federation {
-        vec![client.get_federation(&fed_id).await?]
+        let federation_id = FederationId::new(fed_id);
+        vec![client.get_federation(&federation_id).await?]
     } else {
         client.list_federations().await?
     };
@@ -478,10 +481,10 @@ async fn list_gateways(args: GatewaysArgs, api_url: &str) -> Result<()> {
                             println!(
                                 "  {:<44} {:<20} {:<15} {:<15}",
                                 gateway.gateway_id,
-                                if gateway.api.len() > 20 {
-                                    format!("{}...", &gateway.api[..17])
+                                if gateway.api.0.len() > 20 {
+                                    format!("{}...", &gateway.api.0[..17])
                                 } else {
-                                    gateway.api.clone()
+                                    gateway.api.0.clone()
                                 },
                                 format!("{} msat", gateway.base_fee_msat),
                                 format!("{}/M", gateway.proportional_fee_ppm)
@@ -509,18 +512,21 @@ async fn new_connection(args: NewConnectionArgs, api_url: &str) -> Result<()> {
     };
 
     let allowed_federations = if args.federations == "*" {
-        vec!["*".to_string()]
+        vec![FederationId::new("*".to_string())]
     } else {
-        args.federations.split(',').map(|s| s.to_string()).collect()
+        args.federations
+            .split(',')
+            .map(|s| FederationId::new(s.to_string()))
+            .collect()
     };
 
     let request = api_client::CreateConnectionRequest {
-        name: args.name,
+        name: ConnectionName::new(args.name),
         daily_limit_sats: args.daily_limit_sats,
         per_payment_limit_sats: args.per_payment_limit_sats,
         allowed_federations,
-        relays,
-        lud16: args.lud16,
+        relays: relays.into_iter().map(RelayUrl::new).collect(),
+        lud16: args.lud16.map(LightningAddress::new),
     };
 
     let response = client.create_nwc_connection(request).await?;
@@ -547,7 +553,7 @@ async fn list_connections(args: ListConnectionsArgs, api_url: &str) -> Result<()
             println!("{:<30} {:<20} {:<15}", "Name", "Created", "Spent (sats)");
             println!("{}", "-".repeat(70));
             for connection in connections {
-                let created = chrono::DateTime::from_timestamp(connection.created_at as i64, 0)
+                let created = chrono::DateTime::from_timestamp(connection.created_at.0 as i64, 0)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
                     .unwrap_or_else(|| "Unknown".to_string());
 
@@ -566,8 +572,9 @@ async fn list_connections(args: ListConnectionsArgs, api_url: &str) -> Result<()
 
 async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<()> {
     let client = api_client::ApiClient::new(api_url.to_string())?;
+    let federation_id = args.federation.map(FederationId::new);
     let transactions = client
-        .list_transactions(args.federation.clone(), Some(args.limit))
+        .list_transactions(federation_id, Some(args.limit))
         .await?;
 
     match args.format {
@@ -582,7 +589,7 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
             );
             println!("{}", "-".repeat(80));
             for tx in transactions {
-                let created = chrono::DateTime::from_timestamp(tx.created_at as i64, 0)
+                let created = chrono::DateTime::from_timestamp(tx.created_at.0 as i64, 0)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
                     .unwrap_or_else(|| "Unknown".to_string());
 
@@ -591,7 +598,7 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
                     tx.transaction_type,
                     created,
                     tx.amount_sats,
-                    &tx.federation_id[..15.min(tx.federation_id.len())],
+                    &tx.federation_id.0[..15.min(tx.federation_id.0.len())],
                     tx.state
                 );
             }
@@ -604,8 +611,8 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
 async fn pay_invoice(args: PayInvoiceArgs, api_url: &str) -> Result<()> {
     let client = api_client::ApiClient::new(api_url.to_string())?;
     let request = api_client::PayInvoiceRequest {
-        federation_id: args.federation,
-        invoice: args.invoice,
+        federation_id: args.federation.map(FederationId::new),
+        invoice: Bolt11String::new(args.invoice),
     };
     let response = client.pay_invoice(request).await?;
 
@@ -631,9 +638,9 @@ async fn pay_invoice(args: PayInvoiceArgs, api_url: &str) -> Result<()> {
 async fn create_invoice(args: CreateInvoiceArgs, api_url: &str) -> Result<()> {
     let client = api_client::ApiClient::new(api_url.to_string())?;
     let request = api_client::CreateInvoiceRequest {
-        federation_id: args.federation,
+        federation_id: args.federation.map(FederationId::new),
         amount: args.amount.clone(),
-        description: args.description.clone(),
+        description: Description::new(args.description.clone()),
         expiry: None, // TODO: Add expiry field to CreateInvoiceArgs if needed
     };
     let response = client.create_invoice(request).await?;

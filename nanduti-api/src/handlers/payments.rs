@@ -13,8 +13,8 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct PayInvoiceRequest {
-    pub federation_id: Option<String>,
-    pub invoice: String,
+    pub federation_id: Option<FederationId>,
+    pub invoice: Bolt11String,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,7 +32,7 @@ pub async fn pay_invoice(
     Json(req): Json<PayInvoiceRequest>,
 ) -> Result<Json<PayInvoiceResponse>, (StatusCode, String)> {
     // Parse the invoice
-    let bolt11 = Bolt11Invoice::from_str(&req.invoice)
+    let bolt11 = Bolt11Invoice::from_str(req.invoice.as_str())
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid invoice: {}", e)))?;
 
     let invoice = Invoice::from(&bolt11);
@@ -41,7 +41,7 @@ pub async fn pay_invoice(
     let federation = if let Some(fed_id) = req.federation_id {
         state
             .federation_manager
-            .get_federation(&fed_id)
+            .get_federation(&fed_id.0)
             .await
             .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?
     } else {
@@ -77,7 +77,7 @@ pub async fn pay_invoice(
         federation_id: federation.id.clone(),
         transaction_type: TransactionType::Outgoing,
         state: TransactionState::Settled,
-        invoice: Some(Bolt11String(req.invoice)),
+        invoice: Some(req.invoice.clone()),
         amount: result.amount_paid,
         description: invoice.description,
         payment_hash: result.payment_hash.clone(),

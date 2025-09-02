@@ -4,6 +4,7 @@ use axum::{
     extract::{Query, State},
     Json,
 };
+use nanduti_core::models::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -11,21 +12,21 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct ListTransactionsQuery {
-    pub federation_id: Option<String>,
+    pub federation_id: Option<FederationId>,
     pub limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct TransactionInfo {
-    pub id: String,
-    pub federation_id: String,
+    pub id: TransactionId,
+    pub federation_id: FederationId,
     pub transaction_type: String,
     pub state: String,
     pub amount_sats: u64,
-    pub description: Option<String>,
-    pub payment_hash: String,
-    pub created_at: u64,
-    pub settled_at: Option<u64>,
+    pub description: Option<Description>,
+    pub payment_hash: PaymentHash,
+    pub created_at: Timestamp,
+    pub settled_at: Option<Timestamp>,
 }
 
 /// List transactions
@@ -39,7 +40,7 @@ pub async fn list_transactions(
         // Get transactions for specific federation
         if let Ok(txs) = state
             .storage
-            .get_federation_transactions(&federation_id, params.limit)
+            .get_federation_transactions(&federation_id.0, params.limit)
         {
             all_transactions.extend(txs);
         }
@@ -68,15 +69,15 @@ pub async fn list_transactions(
     let infos: Vec<TransactionInfo> = all_transactions
         .into_iter()
         .map(|tx| TransactionInfo {
-            id: tx.id.to_string(),
-            federation_id: tx.federation_id.0,
+            id: tx.id,
+            federation_id: tx.federation_id,
             transaction_type: format!("{:?}", tx.transaction_type),
             state: format!("{:?}", tx.state),
             amount_sats: tx.amount.as_sats(),
-            description: tx.description.map(|d| d.0),
-            payment_hash: tx.payment_hash.0,
-            created_at: tx.created_at.0,
-            settled_at: tx.settled_at.map(|t| t.0),
+            description: tx.description,
+            payment_hash: tx.payment_hash,
+            created_at: tx.created_at,
+            settled_at: tx.settled_at,
         })
         .collect();
 

@@ -12,9 +12,9 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateInvoiceRequest {
-    pub federation_id: Option<String>,
+    pub federation_id: Option<FederationId>,
     pub amount: String, // Flexible amount parsing (e.g., "100sats", "0.001btc")
-    pub description: String,
+    pub description: Description,
     pub expiry: Option<u64>,
 }
 
@@ -39,7 +39,7 @@ pub async fn create_invoice(
     let federation = if let Some(fed_id) = req.federation_id {
         state
             .federation_manager
-            .get_federation(&fed_id)
+            .get_federation(&fed_id.0)
             .await
             .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?
     } else {
@@ -67,7 +67,7 @@ pub async fn create_invoice(
     // Create invoice
     let description = req.description.clone();
     let invoice = client
-        .make_invoice(amount, req.description, req.expiry)
+        .make_invoice(amount, req.description.0, req.expiry)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -80,7 +80,7 @@ pub async fn create_invoice(
         state: TransactionState::Pending,
         invoice: Some(invoice.bolt11.clone()),
         amount,
-        description: Some(Description(description)),
+        description: Some(description),
         payment_hash: invoice.payment_hash.clone(),
         preimage: None,
         fees_paid: None,
