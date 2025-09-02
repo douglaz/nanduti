@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::fedimint_client::FedimintClientWrapper;
+use crate::models::Timestamp;
 use crate::models::{Amount, FederationMetrics};
 use crate::storage::Storage;
 
@@ -131,10 +132,12 @@ impl FederationManager {
                 average_latency_ms: 0,
                 total_payments: 0,
                 total_volume: Amount::from_msats(0),
-                last_updated: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
+                last_updated: Timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                ),
             },
             client: None,
         };

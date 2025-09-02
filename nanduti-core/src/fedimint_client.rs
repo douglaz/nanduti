@@ -24,7 +24,9 @@ use tracing::info;
 
 use crate::lightning::PaymentResult;
 use crate::mnemonic_store::MnemonicStore;
-use crate::models::{Amount, GatewayVettingStatus, Invoice};
+use crate::models::{
+    Amount, Bolt11String, Description, Expiry, GatewayVettingStatus, Invoice, PaymentHash, Preimage,
+};
 
 /// Wrapper around the actual Fedimint client
 /// This abstracts the Fedimint client API for easier testing and maintenance
@@ -197,7 +199,7 @@ impl FedimintClientWrapper {
     pub async fn pay_invoice(&self, invoice: &Invoice) -> Result<PaymentResult> {
         // Parse the BOLT11 invoice
         let bolt11 =
-            Bolt11Invoice::from_str(&invoice.bolt11).context("Failed to parse BOLT11 invoice")?;
+            Bolt11Invoice::from_str(&invoice.bolt11.0).context("Failed to parse BOLT11 invoice")?;
 
         // Get the lightning module
         let ln_module = self
@@ -234,9 +236,9 @@ impl FedimintClientWrapper {
         let payment_hash = hex::encode(bolt11.payment_hash().as_ref() as &[u8]);
 
         Ok(PaymentResult {
-            preimage: preimage_hex,
+            preimage: Preimage(preimage_hex),
             fees_paid: Some(Amount::from_msats(outgoing_payment.fee.msats)),
-            payment_hash,
+            payment_hash: PaymentHash(payment_hash),
             amount_paid: invoice.amount.unwrap_or(Amount::from_msats(
                 bolt11.amount_milli_satoshis().unwrap_or(0),
             )),
@@ -440,11 +442,11 @@ impl FedimintClientWrapper {
         let payment_hash = hex::encode(invoice.payment_hash().as_ref() as &[u8]);
 
         Ok(Invoice {
-            bolt11: invoice.to_string(),
-            payment_hash,
+            bolt11: Bolt11String(invoice.to_string()),
+            payment_hash: PaymentHash(payment_hash),
             amount: Some(amount),
-            description: Some(description),
-            expiry,
+            description: Some(Description(description)),
+            expiry: expiry.map(Expiry),
             payee_pubkey: None,
         })
     }

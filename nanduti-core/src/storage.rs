@@ -125,7 +125,7 @@ impl Storage {
         if let Some(tree) = &self.transactions {
             let data =
                 serde_json::to_vec(transaction).context("Failed to serialize transaction")?;
-            tree.insert(transaction.id.as_bytes(), data)
+            tree.insert(transaction.id.0.as_bytes(), data)
                 .context("Failed to store transaction")?;
             let transaction_id = &transaction.id;
             debug!("Stored transaction: {transaction_id}");

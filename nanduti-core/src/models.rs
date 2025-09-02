@@ -142,29 +142,29 @@ mod tests {
 /// Lightning invoice
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Invoice {
-    pub bolt11: String,
-    pub payment_hash: String,
+    pub bolt11: Bolt11String,
+    pub payment_hash: PaymentHash,
     pub amount: Option<Amount>,
-    pub description: Option<String>,
-    pub expiry: Option<u64>,
-    pub payee_pubkey: Option<String>,
+    pub description: Option<Description>,
+    pub expiry: Option<Expiry>,
+    pub payee_pubkey: Option<PublicKey>,
 }
 
 /// Transaction record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
-    pub id: String,
-    pub federation_id: String,
+    pub id: TransactionId,
+    pub federation_id: String, // TODO: Use FederationId from fedimint_core when available in this context
     pub transaction_type: TransactionType,
     pub state: TransactionState,
-    pub invoice: Option<String>,
-    pub description: Option<String>,
-    pub preimage: Option<String>,
-    pub payment_hash: String,
+    pub invoice: Option<Bolt11String>,
+    pub description: Option<Description>,
+    pub preimage: Option<Preimage>,
+    pub payment_hash: PaymentHash,
     pub amount: Amount,
     pub fees_paid: Option<Amount>,
-    pub created_at: u64,
-    pub settled_at: Option<u64>,
+    pub created_at: Timestamp,
+    pub settled_at: Option<Timestamp>,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -193,7 +193,7 @@ pub struct FederationMetrics {
     pub average_latency_ms: u64,
     pub total_payments: u64,
     pub total_volume: Amount,
-    pub last_updated: u64,
+    pub last_updated: Timestamp,
 }
 
 /// Gateway vetting status
@@ -206,4 +206,137 @@ pub enum GatewayVettingStatus {
     NotVetted,
     /// No vetting policy exists (all gateways are acceptable)
     Unknown,
+}
+
+// ============================================================================
+// Strong Type Wrappers for Domain Safety
+// ============================================================================
+
+/// Payment hash identifier
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PaymentHash(pub String);
+
+impl PaymentHash {
+    pub fn new(hash: String) -> Self {
+        Self(hash)
+    }
+}
+
+/// Payment preimage
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Preimage(pub String);
+
+impl Preimage {
+    pub fn new(preimage: String) -> Self {
+        Self(preimage)
+    }
+}
+
+/// Public key
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PublicKey(pub String);
+
+impl PublicKey {
+    pub fn new(key: String) -> Self {
+        Self(key)
+    }
+}
+
+impl std::fmt::Display for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// BOLT11 invoice string
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Bolt11String(pub String);
+
+impl Bolt11String {
+    pub fn new(invoice: String) -> Self {
+        Self(invoice)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Payment description
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Description(pub String);
+
+impl Description {
+    pub fn new(desc: String) -> Self {
+        Self(desc)
+    }
+}
+
+/// Transaction identifier
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TransactionId(pub String);
+
+impl TransactionId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for TransactionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Unix timestamp
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Timestamp(pub u64);
+
+impl std::ops::Add<u64> for Timestamp {
+    type Output = Timestamp;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        Timestamp(self.0 + rhs)
+    }
+}
+
+impl Timestamp {
+    pub fn now() -> Self {
+        Self(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        )
+    }
+
+    pub fn from_secs(secs: u64) -> Self {
+        Self(secs)
+    }
+
+    pub fn as_secs(&self) -> u64 {
+        self.0
+    }
+}
+
+/// Expiry duration in seconds
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Expiry(pub u64);
+
+impl Expiry {
+    pub fn from_secs(secs: u64) -> Self {
+        Self(secs)
+    }
+
+    pub fn as_secs(&self) -> u64 {
+        self.0
+    }
 }

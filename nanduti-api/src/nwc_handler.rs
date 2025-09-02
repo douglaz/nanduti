@@ -4,7 +4,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use nanduti_core::{
     federation::{FederationManager, FederationStatus},
     lightning::LightningOperation,
-    models::{Amount, Transaction, TransactionState, TransactionType},
+    models::{
+        Description, Timestamp, Transaction, TransactionId, TransactionState, TransactionType,
+    },
     nwc_protocol::{
         ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcRequest,
         NwcResponse, PayInvoiceParams, PayKeysendParams,
@@ -80,14 +82,14 @@ impl NwcHandler {
             serde_json::from_value(params).context("Invalid pay_invoice parameters")?;
 
         // Parse invoice
-        let invoice = LightningOperation::parse_invoice(&params.invoice)?;
+        let invoice = LightningOperation::parse_invoice(&params.invoice.0)?;
 
         // Validate invoice
         LightningOperation::validate_invoice(&invoice)?;
 
         // Determine amount
         let amount = if let Some(override_amount) = params.amount {
-            Amount::from_msats(override_amount)
+            override_amount
         } else if let Some(invoice_amount) = invoice.amount {
             invoice_amount
         } else {
@@ -114,24 +116,26 @@ impl NwcHandler {
         // Store transaction
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
-                id: format!("tx_{}", uuid::Uuid::new_v4()),
+                id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
                 federation_id: federation.id.clone(),
                 transaction_type: TransactionType::Outgoing,
                 state: TransactionState::Settled,
-                invoice: Some(params.invoice),
-                description: invoice.description,
+                invoice: Some(params.invoice.clone()),
+                description: invoice.description.clone(),
                 preimage: Some(result.preimage.clone()),
                 payment_hash: result.payment_hash.clone(),
                 amount,
                 fees_paid: result.fees_paid,
-                created_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)?
-                    .as_secs(),
-                settled_at: Some(
+                created_at: Timestamp(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)?
                         .as_secs(),
                 ),
+                settled_at: Some(Timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)?
+                        .as_secs(),
+                )),
                 metadata: None,
             };
             storage.store_transaction(&transaction)?;
@@ -145,8 +149,12 @@ impl NwcHandler {
         let params: MakeInvoiceParams =
             serde_json::from_value(params).context("Invalid make_invoice parameters")?;
 
-        let amount = Amount::from_msats(params.amount);
-        let description = params.description.unwrap_or_else(|| "Payment".to_string());
+        let amount = params.amount;
+        let description = params
+            .description
+            .as_ref()
+            .map(|d| d.0.clone())
+            .unwrap_or_else(|| "Payment".to_string());
 
         // Select a federation (round-robin or least loaded)
         let federation = self.router.select_federation_for_receive().await?;
@@ -163,12 +171,12 @@ impl NwcHandler {
             .ok_or_else(|| anyhow!("Federation client not initialized"))?;
 
         let invoice = client
-            .make_invoice(amount, description, params.expiry)
+            .make_invoice(amount, description, params.expiry.map(|e| e.0))
             .await?;
 
         // Create transaction record
         let transaction = Transaction {
-            id: format!("tx_{}", uuid::Uuid::new_v4()),
+            id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
             federation_id: federation.id.clone(),
             transaction_type: TransactionType::Incoming,
             state: TransactionState::Pending,
@@ -178,9 +186,11 @@ impl NwcHandler {
             payment_hash: invoice.payment_hash.clone(),
             amount,
             fees_paid: None,
-            created_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs(),
+            created_at: Timestamp(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_secs(),
+            ),
             settled_at: None,
             metadata: None,
         };
@@ -275,7 +285,7 @@ impl NwcHandler {
         let params: PayKeysendParams =
             serde_json::from_value(params).context("Invalid pay_keysend parameters")?;
 
-        let amount = Amount::from_msats(params.amount);
+        let amount = params.amount;
 
         // Select federation
         let federation = self.router.select_federation(amount).await?;
@@ -284,7 +294,7 @@ impl NwcHandler {
             "Sending keysend via federation {} for {} msats to {}",
             federation.id,
             amount.as_msats(),
-            params.pubkey
+            params.pubkey.0
         );
 
         let client = federation
@@ -294,33 +304,37 @@ impl NwcHandler {
 
         let preimage = params
             .preimage
-            .map(hex::decode)
+            .map(|p| hex::decode(p.0))
             .transpose()
             .context("Invalid preimage hex")?;
 
-        let result = client.pay_keysend(&params.pubkey, amount, preimage).await?;
+        let result = client
+            .pay_keysend(&params.pubkey.0, amount, preimage)
+            .await?;
 
         // Store transaction
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
-                id: format!("tx_{}", uuid::Uuid::new_v4()),
+                id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
                 federation_id: federation.id.clone(),
                 transaction_type: TransactionType::Outgoing,
                 state: TransactionState::Settled,
                 invoice: None,
-                description: Some(format!("Keysend to {}", params.pubkey)),
+                description: Some(Description(format!("Keysend to {}", params.pubkey.0))),
                 preimage: Some(result.preimage.clone()),
                 payment_hash: result.payment_hash.clone(),
                 amount,
                 fees_paid: result.fees_paid,
-                created_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)?
-                    .as_secs(),
-                settled_at: Some(
+                created_at: Timestamp(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)?
                         .as_secs(),
                 ),
+                settled_at: Some(Timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)?
+                        .as_secs(),
+                )),
                 metadata: None,
             };
             storage.store_transaction(&transaction)?;

@@ -3,14 +3,14 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::models::{Amount, Invoice};
+use crate::models::{Amount, Bolt11String, Description, Expiry, Invoice, PaymentHash, Preimage};
 
 /// Result of a lightning payment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymentResult {
-    pub preimage: String,
+    pub preimage: Preimage,
     pub fees_paid: Option<Amount>,
-    pub payment_hash: String,
+    pub payment_hash: PaymentHash,
     pub amount_paid: Amount,
 }
 
@@ -23,14 +23,14 @@ impl LightningOperation {
         // TODO: Use lightning-invoice crate to properly parse
         // For now, return a placeholder
 
-        let payment_hash = hex::encode([0u8; 32]);
+        let payment_hash = PaymentHash(hex::encode([0u8; 32]));
 
         Ok(Invoice {
-            bolt11: bolt11.to_string(),
+            bolt11: Bolt11String(bolt11.to_string()),
             payment_hash,
             amount: Some(Amount::from_sats(1000)),
-            description: Some("Test invoice".to_string()),
-            expiry: Some(3600),
+            description: Some(Description("Test invoice".to_string())),
+            expiry: Some(Expiry(3600)),
             payee_pubkey: None,
         })
     }
@@ -45,7 +45,7 @@ impl LightningOperation {
 
             // TODO: Check actual invoice creation time + expiry
             // For now, just check if expiry is reasonable
-            if expiry == 0 {
+            if expiry.0 == 0 {
                 anyhow::bail!("Invoice has expired");
             }
         }

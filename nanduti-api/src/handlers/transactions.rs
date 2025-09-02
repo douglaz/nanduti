@@ -68,15 +68,15 @@ pub async fn list_transactions(
     let infos: Vec<TransactionInfo> = all_transactions
         .into_iter()
         .map(|tx| TransactionInfo {
-            id: tx.id,
+            id: tx.id.to_string(),
             federation_id: tx.federation_id,
             transaction_type: format!("{:?}", tx.transaction_type),
             state: format!("{:?}", tx.state),
             amount_sats: tx.amount.as_sats(),
-            description: tx.description,
-            payment_hash: tx.payment_hash,
-            created_at: tx.created_at,
-            settled_at: tx.settled_at,
+            description: tx.description.map(|d| d.0),
+            payment_hash: tx.payment_hash.0,
+            created_at: tx.created_at.0,
+            settled_at: tx.settled_at.map(|t| t.0),
         })
         .collect();
 

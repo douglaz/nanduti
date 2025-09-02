@@ -1,7 +1,9 @@
 //! Invoice creation handlers
 
 use axum::{extract::State, http::StatusCode, Json};
-use nanduti_core::models::Amount;
+use nanduti_core::models::{
+    Amount, Bolt11String, Description, PaymentHash, Timestamp, TransactionId,
+};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -18,11 +20,10 @@ pub struct CreateInvoiceRequest {
 
 #[derive(Debug, Serialize)]
 pub struct CreateInvoiceResponse {
-    pub invoice: String, // Keep as String for API compatibility
-    pub payment_hash: String,
-    pub amount_sats: u64,
-    pub amount_msats: u64,
-    pub federation_id: String, // Keep as String for API serialization
+    pub invoice: Bolt11String,
+    pub payment_hash: PaymentHash,
+    pub amount: Amount,
+    pub federation_id: String, // From federation, already a String
 }
 
 /// Create a Lightning invoice
@@ -73,21 +74,23 @@ pub async fn create_invoice(
     // Store transaction record
     use nanduti_core::models::{Transaction, TransactionState, TransactionType};
     let transaction = Transaction {
-        id: format!("tx_{}", uuid::Uuid::new_v4()),
+        id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
         federation_id: federation.id.clone(),
         transaction_type: TransactionType::Incoming,
         state: TransactionState::Pending,
         invoice: Some(invoice.bolt11.clone()),
         amount,
-        description: Some(description),
+        description: Some(Description(description)),
         payment_hash: invoice.payment_hash.clone(),
         preimage: None,
         fees_paid: None,
         metadata: None,
-        created_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
+        created_at: Timestamp(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        ),
         settled_at: None,
     };
     state
@@ -98,8 +101,7 @@ pub async fn create_invoice(
     Ok(Json(CreateInvoiceResponse {
         invoice: invoice.bolt11,
         payment_hash: invoice.payment_hash,
-        amount_sats: amount.as_sats(),
-        amount_msats: amount.as_msats(),
+        amount,
         federation_id: federation.id,
     }))
 }

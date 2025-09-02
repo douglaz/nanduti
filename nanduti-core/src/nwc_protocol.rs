@@ -2,11 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::str::FromStr;
 use strum::{Display, EnumString};
 
 use crate::lightning::PaymentResult;
-use crate::models::Transaction;
+use crate::models::{
+    Amount, Bolt11String, Description, Expiry, Preimage, PublicKey, Timestamp, Transaction,
+};
 
 /// NWC request methods
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]
@@ -112,12 +113,12 @@ impl NwcResponse {
             result: Some(serde_json::json!({
                 "type": "incoming",
                 "state": transaction.state,
-                "invoice": invoice.bolt11,
-                "description": invoice.description,
-                "payment_hash": invoice.payment_hash,
+                "invoice": invoice.bolt11.0,
+                "description": invoice.description.as_ref().map(|d| &d.0),
+                "payment_hash": invoice.payment_hash.0,
                 "amount": invoice.amount.map(|a| a.as_msats()),
                 "created_at": transaction.created_at,
-                "expires_at": invoice.expiry.map(|e| transaction.created_at + e),
+                "expires_at": invoice.expiry.as_ref().map(|e| transaction.created_at + e.0),
             })),
         }
     }
@@ -133,7 +134,7 @@ impl NwcResponse {
                     "invoice": tx.invoice,
                     "description": tx.description,
                     "preimage": tx.preimage,
-                    "payment_hash": tx.payment_hash,
+                    "payment_hash": tx.payment_hash.0,
                     "amount": tx.amount.as_msats(),
                     "fees_paid": tx.fees_paid.map(|a| a.as_msats()),
                     "created_at": tx.created_at,
@@ -192,45 +193,30 @@ impl NwcResponse {
 /// NWC pay_invoice parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayInvoiceParams {
-    pub invoice: String, // Keep as String for protocol compatibility
+    pub invoice: Bolt11String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub amount: Option<u64>, // msats
-}
-
-impl PayInvoiceParams {
-    /// Parse and validate the invoice
-    pub fn validate_invoice(&self) -> Result<lightning_invoice::Bolt11Invoice, String> {
-        lightning_invoice::Bolt11Invoice::from_str(&self.invoice)
-            .map_err(|e| format!("Invalid invoice: {e}"))
-    }
+    pub amount: Option<Amount>,
 }
 
 /// NWC make_invoice parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MakeInvoiceParams {
-    pub amount: u64, // msats - kept as u64 for protocol compatibility
+    pub amount: Amount,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub description: Option<Description>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description_hash: Option<String>,
+    pub description_hash: Option<String>, // Keep as String for hash
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expiry: Option<u64>, // seconds
-}
-
-impl MakeInvoiceParams {
-    /// Get amount as Amount type
-    pub fn amount(&self) -> crate::models::Amount {
-        crate::models::Amount::from_msats(self.amount)
-    }
+    pub expiry: Option<Expiry>,
 }
 
 /// NWC list_transactions parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListTransactionsParams {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from: Option<u64>, // timestamp
+    pub from: Option<Timestamp>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub until: Option<u64>, // timestamp
+    pub until: Option<Timestamp>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -244,10 +230,10 @@ pub struct ListTransactionsParams {
 /// NWC pay_keysend parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayKeysendParams {
-    pub amount: u64, // msats
-    pub pubkey: String,
+    pub amount: Amount,
+    pub pubkey: PublicKey,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preimage: Option<String>,
+    pub preimage: Option<Preimage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tlv_records: Option<Vec<TlvRecord>>,
 }
