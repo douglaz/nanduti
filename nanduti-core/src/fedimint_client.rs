@@ -103,7 +103,7 @@ impl FedimintClientWrapper {
 
         // Preview the federation
         let client_config = client_builder
-            .preview(&invite)
+            .preview(invite)
             .await
             .context("Failed to preview federation")?;
 
