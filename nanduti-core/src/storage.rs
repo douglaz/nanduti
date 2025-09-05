@@ -165,6 +165,43 @@ impl Storage {
         Ok(transactions)
     }
 
+    /// Get a transaction by payment hash
+    pub fn get_transaction_by_payment_hash(
+        &self,
+        payment_hash: &str,
+    ) -> Result<Option<Transaction>> {
+        if let Some(tree) = &self.transactions {
+            for item in tree.iter() {
+                let (_, value) = item.context("Failed to read transaction item")?;
+                let transaction: Transaction =
+                    serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
+
+                if transaction.payment_hash.0 == payment_hash {
+                    return Ok(Some(transaction));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Get a transaction by invoice
+    pub fn get_transaction_by_invoice(&self, invoice: &str) -> Result<Option<Transaction>> {
+        if let Some(tree) = &self.transactions {
+            for item in tree.iter() {
+                let (_, value) = item.context("Failed to read transaction item")?;
+                let transaction: Transaction =
+                    serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
+
+                if let Some(tx_invoice) = &transaction.invoice {
+                    if tx_invoice.0 == invoice {
+                        return Ok(Some(transaction));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Store a NWC connection
     pub fn store_connection(&self, connection: &NwcConnection) -> Result<()> {
         if let Some(tree) = &self.connections {

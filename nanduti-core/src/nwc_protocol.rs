@@ -62,6 +62,7 @@ pub enum NwcErrorCode {
     Internal,
     PaymentFailed,
     NotFound,
+    BadRequest,
     Other,
 }
 
@@ -77,6 +78,7 @@ impl NwcErrorCode {
             Self::Internal => "INTERNAL",
             Self::PaymentFailed => "PAYMENT_FAILED",
             Self::NotFound => "NOT_FOUND",
+            Self::BadRequest => "BAD_REQUEST",
             Self::Other => "OTHER",
         }
     }
@@ -238,6 +240,15 @@ impl NwcResponse {
             result_type: "get_info".to_string(),
             error: None,
             result: Some(serde_json::to_value(info_result).unwrap()),
+        }
+    }
+
+    /// Create a successful lookup_invoice response
+    pub fn lookup_invoice(result: Value) -> Self {
+        Self {
+            result_type: "lookup_invoice".to_string(),
+            error: None,
+            result: Some(result),
         }
     }
 

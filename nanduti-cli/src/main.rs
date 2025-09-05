@@ -277,6 +277,10 @@ struct CreateInvoiceArgs {
     #[arg(long, default_value = "Payment")]
     description: String,
 
+    /// Expiry time in seconds (default: 3600 = 1 hour)
+    #[arg(long, default_value = "3600")]
+    expiry: u64,
+
     /// Federation ID (optional, auto-select if not specified)
     #[arg(long)]
     federation: Option<String>,
@@ -636,7 +640,7 @@ async fn create_invoice(args: CreateInvoiceArgs, api_url: &str) -> Result<()> {
         federation_id: args.federation.map(FederationId::new),
         amount,
         description: Description::new(args.description.clone()),
-        expiry: None, // TODO: Add expiry field to CreateInvoiceArgs if needed
+        expiry: Some(Expiry(args.expiry)),
     };
     let response = client.create_invoice(request).await?;
 

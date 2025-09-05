@@ -57,7 +57,7 @@ pub async fn add_federation(
 ) -> Result<Json<AddFederationResponse>, (StatusCode, String)> {
     let federation_id = state
         .federation_manager
-        .add_federation(&req.invite_code.to_string())
+        .add_federation(&req.invite_code)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
@@ -94,9 +94,8 @@ pub async fn list_federations(State(state): State<Arc<AppState>>) -> Json<Vec<Fe
 /// Get federation details
 pub async fn get_federation(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(federation_id): Path<FederationId>,
 ) -> Result<Json<FederationInfo>, (StatusCode, String)> {
-    let federation_id = FederationId::new(id);
     let federation = state
         .federation_manager
         .get_federation(&federation_id)
@@ -114,9 +113,8 @@ pub async fn get_federation(
 /// Remove a federation
 pub async fn remove_federation(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(federation_id): Path<FederationId>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let federation_id = FederationId::new(id);
     state
         .federation_manager
         .remove_federation(&federation_id)
@@ -129,16 +127,16 @@ pub async fn remove_federation(
 /// Get federation balance
 pub async fn get_federation_balance(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(federation_id): Path<FederationId>,
 ) -> Result<Json<BalanceResponse>, (StatusCode, String)> {
     let balance = state
         .federation_manager
-        .update_balance(&id)
+        .update_balance(&federation_id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     Ok(Json(BalanceResponse {
-        federation_id: FederationId(id),
+        federation_id,
         balance_msats: balance,
     }))
 }
@@ -146,9 +144,8 @@ pub async fn get_federation_balance(
 /// List federation gateways
 pub async fn list_federation_gateways(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(federation_id): Path<FederationId>,
 ) -> Result<Json<Vec<GatewayInfo>>, (StatusCode, String)> {
-    let federation_id = FederationId::new(id);
     let federation = state
         .federation_manager
         .get_federation(&federation_id)

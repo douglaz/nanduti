@@ -100,7 +100,10 @@ impl FederationManager {
     }
 
     /// Add a new federation from invite code
-    pub async fn add_federation(&self, invite_code: &str) -> Result<FederationId> {
+    pub async fn add_federation(
+        &self,
+        invite_code: &fedimint_core::invite_code::InviteCode,
+    ) -> Result<FederationId> {
         info!("Adding federation from invite code");
 
         // Parse invite code to get federation ID, name, and the parsed invite
@@ -217,12 +220,11 @@ impl FederationManager {
     }
 
     /// Update federation balance
-    pub async fn update_balance(&self, federation_id: &str) -> Result<Amount> {
-        let federation_id = FederationId(federation_id.to_string());
+    pub async fn update_balance(&self, federation_id: &FederationId) -> Result<Amount> {
         let mut federations = self.federations.write().await;
 
         let federation_arc = federations
-            .get_mut(&federation_id)
+            .get_mut(federation_id)
             .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
 
         let federation = Arc::make_mut(federation_arc);
@@ -244,14 +246,13 @@ impl FederationManager {
     /// Update federation metrics
     pub async fn update_metrics(
         &self,
-        federation_id: &str,
+        federation_id: &FederationId,
         metrics: FederationMetrics,
     ) -> Result<()> {
-        let federation_id = FederationId(federation_id.to_string());
         let mut federations = self.federations.write().await;
 
         let federation_arc = federations
-            .get_mut(&federation_id)
+            .get_mut(federation_id)
             .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
 
         let federation = Arc::make_mut(federation_arc);
@@ -266,12 +267,11 @@ impl FederationManager {
     }
 
     /// Check federation health
-    pub async fn check_health(&self, federation_id: &str) -> Result<FederationStatus> {
-        let federation_id = FederationId(federation_id.to_string());
+    pub async fn check_health(&self, federation_id: &FederationId) -> Result<FederationStatus> {
         let federations = self.federations.read().await;
 
         let federation = federations
-            .get(&federation_id)
+            .get(federation_id)
             .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
 
         if let Some(client) = &federation.client {
@@ -291,19 +291,13 @@ impl FederationManager {
     /// Parse invite code to extract federation ID, name, and the parsed invite
     fn parse_invite_code(
         &self,
-        invite_code: &str,
+        invite_code: &fedimint_core::invite_code::InviteCode,
     ) -> Result<(
         FederationId,
         FederationName,
         fedimint_core::invite_code::InviteCode,
     )> {
-        use fedimint_core::invite_code::InviteCode;
-        use std::str::FromStr;
-
-        // Parse the invite code using fedimint-core
-        let invite = InviteCode::from_str(invite_code).context("Failed to parse invite code")?;
-
-        let federation_id_str = invite.federation_id().to_string();
+        let federation_id_str = invite_code.federation_id().to_string();
         let federation_id = FederationId(federation_id_str.clone());
 
         // Try to extract federation name from the invite code
@@ -311,7 +305,7 @@ impl FederationManager {
         let federation_prefix = &federation_id_str[0..8.min(federation_id_str.len())];
         let federation_name = FederationName(format!("Federation {federation_prefix}"));
 
-        Ok((federation_id, federation_name, invite))
+        Ok((federation_id, federation_name, invite_code.clone()))
     }
 
     /// Get federations that can pay a specific amount

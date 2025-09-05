@@ -85,7 +85,7 @@ impl NwcHandler {
         let invoice = LightningOperation::parse_invoice(&params.invoice.0)?;
 
         // Validate invoice
-        LightningOperation::validate_invoice(&invoice)?;
+        LightningOperation::validate_invoice(&params.invoice.0)?;
 
         // Determine amount
         let amount = if let Some(override_amount) = params.amount {
@@ -342,13 +342,67 @@ impl NwcHandler {
     }
 
     /// Handle lookup_invoice request
-    async fn handle_lookup_invoice(&self, _params: Value) -> Result<NwcResponse> {
-        // TODO: Implement invoice lookup
-        Ok(NwcResponse::error(
-            "lookup_invoice".to_string(),
-            NwcErrorCode::NotImplemented,
-            "Invoice lookup not yet implemented".to_string(),
-        ))
+    async fn handle_lookup_invoice(&self, params: Value) -> Result<NwcResponse> {
+        // Parse payment hash or invoice from params
+        let payment_hash = params
+            .get("payment_hash")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let invoice = params
+            .get("invoice")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        // Look up transaction by payment hash or invoice
+        let transaction = if let Some(hash) = payment_hash {
+            if let Some(storage) = &self.storage {
+                storage
+                    .get_transaction_by_payment_hash(&hash)
+                    .map_err(|e| anyhow::anyhow!("Failed to lookup transaction: {}", e))?
+            } else {
+                None
+            }
+        } else if let Some(inv) = invoice {
+            if let Some(storage) = &self.storage {
+                storage
+                    .get_transaction_by_invoice(&inv)
+                    .map_err(|e| anyhow::anyhow!("Failed to lookup transaction: {}", e))?
+            } else {
+                None
+            }
+        } else {
+            return Ok(NwcResponse::error(
+                "lookup_invoice".to_string(),
+                NwcErrorCode::BadRequest,
+                "Missing payment_hash or invoice parameter".to_string(),
+            ));
+        };
+
+        // Check if transaction was found
+        if let Some(tx) = transaction {
+            // Build response based on transaction state
+            let settled = matches!(tx.state, TransactionState::Settled);
+            let response = serde_json::json!({
+                "invoice": tx.invoice.as_ref().map(|i| i.0.clone()),
+                "amount": tx.amount.as_msats() / 1000, // Convert to sats for NWC
+                "payment_hash": tx.payment_hash.0,
+                "preimage": tx.preimage.as_ref().map(|p| p.0.clone()),
+                "settled_at": tx.settled_at.map(|t| t.0),
+                "created_at": tx.created_at.0,
+                "description": tx.description.as_ref().map(|d| d.0.clone()),
+                "fees_paid": tx.fees_paid.map(|f| f.as_msats() / 1000),
+                "settled": settled,
+            });
+
+            Ok(NwcResponse::lookup_invoice(response))
+        } else {
+            Ok(NwcResponse::error(
+                "lookup_invoice".to_string(),
+                NwcErrorCode::NotFound,
+                "Invoice not found".to_string(),
+            ))
+        }
     }
 }
 
