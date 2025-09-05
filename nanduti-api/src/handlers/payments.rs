@@ -64,39 +64,57 @@ pub async fn pay_invoice(
         )
     })?;
 
+    // Store initial transaction record before payment
+    use nanduti_core::models::{Transaction, TransactionState, TransactionType};
+    let transaction_id = TransactionId(format!("tx_{}", uuid::Uuid::new_v4()));
+    let created_at = Timestamp(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    );
+
+    let mut transaction = Transaction {
+        id: transaction_id.clone(),
+        federation_id: federation.id.clone(),
+        transaction_type: TransactionType::Outgoing,
+        state: TransactionState::Pending,
+        invoice: Some(req.invoice.clone()),
+        amount: invoice.amount.unwrap_or(Amount::from_msats(0)),
+        description: invoice.description.clone(),
+        payment_hash: invoice.payment_hash.clone(),
+        preimage: None,
+        fees_paid: None,
+        metadata: None,
+        created_at,
+        settled_at: None,
+    };
+
+    // Store pending transaction
+    state
+        .storage
+        .store_transaction(&transaction)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     // Pay the invoice
     let result = client
         .pay_invoice(&invoice)
         .await
         .map_err(|e| (StatusCode::PAYMENT_REQUIRED, e.to_string()))?;
 
-    // Store transaction record
-    use nanduti_core::models::{Transaction, TransactionState, TransactionType};
-    let transaction = Transaction {
-        id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
-        federation_id: federation.id.clone(),
-        transaction_type: TransactionType::Outgoing,
-        state: TransactionState::Settled,
-        invoice: Some(req.invoice.clone()),
-        amount: result.amount_paid,
-        description: invoice.description,
-        payment_hash: result.payment_hash.clone(),
-        preimage: Some(result.preimage.clone()),
-        fees_paid: result.fees_paid,
-        metadata: None,
-        created_at: Timestamp(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        ),
-        settled_at: Some(Timestamp(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        )),
-    };
+    // Update transaction with settlement details
+    transaction.state = TransactionState::Settled;
+    transaction.amount = result.amount_paid;
+    transaction.preimage = Some(result.preimage.clone());
+    transaction.fees_paid = result.fees_paid;
+    transaction.settled_at = Some(Timestamp(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    ));
+
+    // Update stored transaction
     state
         .storage
         .store_transaction(&transaction)

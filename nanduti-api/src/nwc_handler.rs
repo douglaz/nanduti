@@ -5,7 +5,8 @@ use nanduti_core::{
     federation::{FederationManager, FederationStatus},
     lightning::LightningOperation,
     models::{
-        Description, Timestamp, Transaction, TransactionId, TransactionState, TransactionType,
+        Description, PaymentHash, Timestamp, Transaction, TransactionId, TransactionState,
+        TransactionType,
     },
     nwc_protocol::{
         ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcRequest,
@@ -105,6 +106,33 @@ impl NwcHandler {
             amount.as_msats()
         );
 
+        // Store initial transaction before payment
+        let transaction_id = TransactionId(format!("tx_{}", uuid::Uuid::new_v4()));
+        let created_at = Timestamp(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs(),
+        );
+
+        if let Some(storage) = &self.storage {
+            let transaction = Transaction {
+                id: transaction_id.clone(),
+                federation_id: federation.id.clone(),
+                transaction_type: TransactionType::Outgoing,
+                state: TransactionState::Pending,
+                invoice: Some(params.invoice.clone()),
+                description: invoice.description.clone(),
+                preimage: None,
+                payment_hash: invoice.payment_hash.clone(),
+                amount,
+                fees_paid: None,
+                created_at,
+                settled_at: None,
+                metadata: None,
+            };
+            storage.store_transaction(&transaction)?;
+        }
+
         // Execute payment
         let client = federation
             .client
@@ -113,10 +141,10 @@ impl NwcHandler {
 
         let result = client.pay_invoice(&invoice).await?;
 
-        // Store transaction
+        // Update transaction with settlement details
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
-                id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
+                id: transaction_id,
                 federation_id: federation.id.clone(),
                 transaction_type: TransactionType::Outgoing,
                 state: TransactionState::Settled,
@@ -126,11 +154,7 @@ impl NwcHandler {
                 payment_hash: result.payment_hash.clone(),
                 amount,
                 fees_paid: result.fees_paid,
-                created_at: Timestamp(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)?
-                        .as_secs(),
-                ),
+                created_at,
                 settled_at: Some(Timestamp(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)?
@@ -297,6 +321,34 @@ impl NwcHandler {
             params.pubkey.0
         );
 
+        // Store initial transaction before payment
+        let transaction_id = TransactionId(format!("tx_{}", uuid::Uuid::new_v4()));
+        let created_at = Timestamp(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs(),
+        );
+        let description = Some(Description(format!("Keysend to {}", params.pubkey.0)));
+
+        if let Some(storage) = &self.storage {
+            let transaction = Transaction {
+                id: transaction_id.clone(),
+                federation_id: federation.id.clone(),
+                transaction_type: TransactionType::Outgoing,
+                state: TransactionState::Pending,
+                invoice: None,
+                description: description.clone(),
+                preimage: None,
+                payment_hash: PaymentHash(String::new()), // Will be updated after payment
+                amount,
+                fees_paid: None,
+                created_at,
+                settled_at: None,
+                metadata: None,
+            };
+            storage.store_transaction(&transaction)?;
+        }
+
         let client = federation
             .client
             .as_ref()
@@ -310,24 +362,20 @@ impl NwcHandler {
 
         let result = client.pay_keysend(&params.pubkey, amount, preimage).await?;
 
-        // Store transaction
+        // Update transaction with settlement details
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
-                id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
+                id: transaction_id,
                 federation_id: federation.id.clone(),
                 transaction_type: TransactionType::Outgoing,
                 state: TransactionState::Settled,
                 invoice: None,
-                description: Some(Description(format!("Keysend to {}", params.pubkey.0))),
+                description,
                 preimage: Some(result.preimage.clone()),
                 payment_hash: result.payment_hash.clone(),
                 amount,
                 fees_paid: result.fees_paid,
-                created_at: Timestamp(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)?
-                        .as_secs(),
-                ),
+                created_at,
                 settled_at: Some(Timestamp(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)?
