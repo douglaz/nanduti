@@ -203,8 +203,35 @@ impl FederationRouter {
         // Sort by preference based on strategy
         match self.strategy {
             RoutingStrategy::LowestFee => {
-                // Sort by estimated fees (would need async in real impl)
-                federations.sort_by_key(|f| f.metrics.average_fee.as_msats());
+                // Estimate actual fees for each federation
+                let mut federations_with_fees = Vec::new();
+                for federation in federations {
+                    if let Some(client) = &federation.client {
+                        match client.estimate_fee(amount).await {
+                            Ok(fee) => {
+                                federations_with_fees.push((federation, fee));
+                            }
+                            Err(e) => {
+                                debug!(
+                                    "Failed to estimate fee for federation {}: {e}",
+                                    federation.id
+                                );
+                                // Include with max fee as fallback
+                                federations_with_fees
+                                    .push((federation, Amount::from_msats(u64::MAX)));
+                            }
+                        }
+                    } else {
+                        // No client available, put at the end
+                        federations_with_fees.push((federation, Amount::from_msats(u64::MAX)));
+                    }
+                }
+
+                // Sort by estimated fees
+                federations_with_fees.sort_by_key(|(_, fee)| fee.as_msats());
+
+                // Extract sorted federations
+                federations = federations_with_fees.into_iter().map(|(f, _)| f).collect();
             }
             RoutingStrategy::BestRoute => {
                 federations.sort_by(|a, b| {
