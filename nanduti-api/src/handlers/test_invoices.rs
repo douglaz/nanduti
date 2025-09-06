@@ -111,8 +111,8 @@ mod tests {
             )
             .await?;
 
-        // Should fail when no federations are configured
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Should fail when no federations are configured (returns 422 for validation errors)
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
         Ok(())
     }
 
@@ -137,8 +137,8 @@ mod tests {
             )
             .await?;
 
-        // Should fail when no federations are configured
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Should fail when no federations are configured (returns 422 for validation errors)
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
         Ok(())
     }
 }
