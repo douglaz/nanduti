@@ -667,7 +667,7 @@ async fn create_invoice(args: CreateInvoiceArgs, api_url: &str) -> Result<()> {
         federation_id: args.federation.map(FederationId::new),
         amount,
         description: Description::new(args.description.clone()),
-        expiry: Some(Expiry(args.expiry)),
+        expiry: Some(Expiry::from_secs(args.expiry)),
     };
     let response = client.create_invoice(request).await?;
 

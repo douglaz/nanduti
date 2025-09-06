@@ -67,13 +67,8 @@ pub async fn pay_invoice(
     // Store initial transaction record before payment
     use nanduti_core::models::{Transaction, TransactionState, TransactionType};
     let uuid = uuid::Uuid::new_v4();
-    let transaction_id = TransactionId(format!("tx_{uuid}"));
-    let created_at = Timestamp(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-    );
+    let transaction_id = TransactionId::new(format!("tx_{uuid}"));
+    let created_at = Timestamp::now();
 
     let mut transaction = Transaction {
         id: transaction_id.clone(),
@@ -108,12 +103,7 @@ pub async fn pay_invoice(
     transaction.amount = result.amount_paid;
     transaction.preimage = Some(result.preimage.clone());
     transaction.fees_paid = result.fees_paid;
-    transaction.settled_at = Some(Timestamp(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-    ));
+    transaction.settled_at = Some(Timestamp::now());
 
     // Update stored transaction
     state

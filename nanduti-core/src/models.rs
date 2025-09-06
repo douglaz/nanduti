@@ -11,7 +11,7 @@ use strum::{Display, EnumString};
 /// This provides compatibility while using Fedimint's robust parsing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Amount(pub FedimintAmount);
+pub struct Amount(FedimintAmount);
 
 impl Amount {
     pub fn from_sats(sats: u64) -> Self {
@@ -199,7 +199,7 @@ pub enum GatewayVettingStatus {
 /// Payment hash identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PaymentHash(pub String);
+pub struct PaymentHash(String);
 
 impl PaymentHash {
     pub fn new(hash: String) -> Self {
@@ -234,7 +234,7 @@ impl std::fmt::Display for PaymentHash {
 /// Payment preimage
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Preimage(pub String);
+pub struct Preimage(String);
 
 impl Preimage {
     pub fn new(preimage: String) -> Self {
@@ -269,7 +269,7 @@ impl std::fmt::Display for Preimage {
 /// Public key
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PublicKey(pub String);
+pub struct PublicKey(String);
 
 impl PublicKey {
     pub fn new(key: String) -> Self {
@@ -304,7 +304,7 @@ impl std::fmt::Display for PublicKey {
 /// BOLT11 invoice string
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Bolt11String(pub String);
+pub struct Bolt11String(String);
 
 impl Bolt11String {
     pub fn new(invoice: String) -> Self {
@@ -325,7 +325,7 @@ impl std::fmt::Display for Bolt11String {
 /// Payment description
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Description(pub String);
+pub struct Description(String);
 
 impl Description {
     pub fn new(desc: String) -> Self {
@@ -356,7 +356,7 @@ impl std::fmt::Display for Description {
 /// Transaction identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct TransactionId(pub String);
+pub struct TransactionId(String);
 
 impl TransactionId {
     pub fn new(id: String) -> Self {
@@ -391,7 +391,7 @@ impl std::fmt::Display for TransactionId {
 /// Unix timestamp
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Timestamp(pub u64);
+pub struct Timestamp(u64);
 
 impl std::ops::Add<u64> for Timestamp {
     type Output = Timestamp;
@@ -439,7 +439,7 @@ impl From<Timestamp> for u64 {
 /// Expiry duration in seconds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Expiry(pub u64);
+pub struct Expiry(u64);
 
 impl Expiry {
     pub fn from_secs(secs: u64) -> Self {
@@ -466,7 +466,7 @@ impl From<Expiry> for u64 {
 /// Federation identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct FederationId(pub String);
+pub struct FederationId(String);
 
 impl FederationId {
     pub fn new(id: String) -> Self {
@@ -501,7 +501,7 @@ impl std::fmt::Display for FederationId {
 /// Federation name
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct FederationName(pub String);
+pub struct FederationName(String);
 
 impl FederationName {
     pub fn new(name: String) -> Self {
@@ -532,7 +532,7 @@ impl std::fmt::Display for FederationName {
 /// Gateway identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct GatewayId(pub String);
+pub struct GatewayId(String);
 
 impl GatewayId {
     pub fn new(id: String) -> Self {
@@ -563,7 +563,7 @@ impl std::fmt::Display for GatewayId {
 /// NWC Connection identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ConnectionId(pub String);
+pub struct ConnectionId(String);
 
 impl ConnectionId {
     pub fn new(id: String) -> Self {
@@ -594,7 +594,7 @@ impl std::fmt::Display for ConnectionId {
 /// Connection name
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ConnectionName(pub String);
+pub struct ConnectionName(String);
 
 impl ConnectionName {
     pub fn new(name: String) -> Self {
@@ -625,7 +625,7 @@ impl std::fmt::Display for ConnectionName {
 /// Lightning address (LUD16)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct LightningAddress(pub String);
+pub struct LightningAddress(String);
 
 impl LightningAddress {
     pub fn new(address: String) -> Self {
@@ -656,7 +656,7 @@ impl std::fmt::Display for LightningAddress {
 /// Nostr relay URL
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct RelayUrl(pub String);
+pub struct RelayUrl(String);
 
 impl RelayUrl {
     pub fn new(url: String) -> Self {
@@ -687,7 +687,7 @@ impl std::fmt::Display for RelayUrl {
 /// Gateway API URL
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct GatewayApiUrl(pub String);
+pub struct GatewayApiUrl(String);
 
 impl GatewayApiUrl {
     pub fn new(url: String) -> Self {
@@ -718,7 +718,7 @@ impl std::fmt::Display for GatewayApiUrl {
 /// Connection URI for NWC
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ConnectionUri(pub String);
+pub struct ConnectionUri(String);
 
 impl ConnectionUri {
     pub fn new(uri: String) -> Self {

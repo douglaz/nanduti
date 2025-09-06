@@ -30,7 +30,7 @@ impl LightningOperation {
 
         // Extract payment hash
         let payment_hash_bytes: &[u8] = parsed.payment_hash().as_ref();
-        let payment_hash = PaymentHash(hex::encode(payment_hash_bytes));
+        let payment_hash = PaymentHash::new(hex::encode(payment_hash_bytes));
 
         // Extract amount if present
         let amount = parsed.amount_milli_satoshis().map(Amount::from_msats);
@@ -38,26 +38,26 @@ impl LightningOperation {
         // Extract description
         let description = match parsed.description() {
             lightning_invoice::Bolt11InvoiceDescriptionRef::Direct(desc) => {
-                Some(Description(desc.to_string()))
+                Some(Description::new(desc.to_string()))
             }
-            lightning_invoice::Bolt11InvoiceDescriptionRef::Hash(_) => {
-                Some(Description("Payment with description hash".to_string()))
-            }
+            lightning_invoice::Bolt11InvoiceDescriptionRef::Hash(_) => Some(Description::new(
+                "Payment with description hash".to_string(),
+            )),
         };
 
         // Extract expiry (default is 3600 seconds if not specified)
-        let expiry = Some(Expiry(parsed.expiry_time().as_secs()));
+        let expiry = Some(Expiry::from_secs(parsed.expiry_time().as_secs()));
 
         // Extract payee pubkey if present
         let payee_pubkey = parsed
             .payee_pub_key()
-            .map(|pk| PublicKey(hex::encode(pk.serialize())));
+            .map(|pk| PublicKey::new(hex::encode(pk.serialize())));
 
         // Extract creation timestamp
         let created_at = Some(parsed.timestamp());
 
         Ok(Invoice {
-            bolt11: Bolt11String(bolt11.to_string()),
+            bolt11: Bolt11String::new(bolt11.to_string()),
             payment_hash,
             amount,
             description,
@@ -93,39 +93,4 @@ impl LightningOperation {
 
         Ok(())
     }
-
-    /// Calculate route hints for an invoice
-    pub fn get_route_hints(bolt11: &str) -> Result<Vec<RouteHint>> {
-        // Parse the invoice to extract route hints
-        let parsed = Bolt11Invoice::from_str(bolt11)
-            .context("Failed to parse BOLT11 invoice for route hints")?;
-
-        let mut route_hints = Vec::new();
-
-        // Extract private route hints from the invoice
-        for route in parsed.private_routes() {
-            for hop in route.0.iter() {
-                let hint = RouteHint {
-                    pubkey: hex::encode(hop.src_node_id.serialize()),
-                    short_channel_id: hop.short_channel_id.to_string(),
-                    fee_base_msat: Amount::from_msats(hop.fees.base_msat as u64),
-                    fee_proportional_millionths: hop.fees.proportional_millionths,
-                    cltv_expiry_delta: hop.cltv_expiry_delta,
-                };
-                route_hints.push(hint);
-            }
-        }
-
-        Ok(route_hints)
-    }
-}
-
-/// Route hint for lightning payments
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RouteHint {
-    pub pubkey: String,
-    pub short_channel_id: String,
-    pub fee_base_msat: Amount,
-    pub fee_proportional_millionths: u32,
-    pub cltv_expiry_delta: u16,
 }

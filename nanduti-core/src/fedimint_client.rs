@@ -232,9 +232,9 @@ impl FedimintClientWrapper {
         let payment_hash = hex::encode(bolt11.payment_hash().as_ref() as &[u8]);
 
         Ok(PaymentResult {
-            preimage: Preimage(preimage_hex),
+            preimage: Preimage::new(preimage_hex),
             fees_paid: Some(Amount::from_msats(outgoing_payment.fee.msats)),
-            payment_hash: PaymentHash(payment_hash),
+            payment_hash: PaymentHash::new(payment_hash),
             amount_paid: invoice.amount.unwrap_or(Amount::from_msats(
                 bolt11.amount_milli_satoshis().unwrap_or(0),
             )),
@@ -446,11 +446,11 @@ impl FedimintClientWrapper {
         let payment_hash = hex::encode(invoice.payment_hash().as_ref() as &[u8]);
 
         Ok(Invoice {
-            bolt11: Bolt11String(invoice.to_string()),
-            payment_hash: PaymentHash(payment_hash),
+            bolt11: Bolt11String::new(invoice.to_string()),
+            payment_hash: PaymentHash::new(payment_hash),
             amount: Some(amount),
-            description: Some(Description(description)),
-            expiry: expiry.map(Expiry),
+            description: Some(Description::new(description)),
+            expiry: expiry.map(Expiry::from_secs),
             payee_pubkey: None,
             created_at: Some(invoice.timestamp()),
         })

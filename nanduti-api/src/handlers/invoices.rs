@@ -74,7 +74,7 @@ pub async fn create_invoice(
     let transaction = Transaction {
         id: {
             let uuid = uuid::Uuid::new_v4();
-            TransactionId(format!("tx_{uuid}"))
+            TransactionId::new(format!("tx_{uuid}"))
         },
         federation_id: federation.id.clone(),
         transaction_type: TransactionType::Incoming,
@@ -86,12 +86,7 @@ pub async fn create_invoice(
         preimage: None,
         fees_paid: None,
         metadata: None,
-        created_at: Timestamp(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        ),
+        created_at: Timestamp::now(),
         settled_at: None,
     };
     state

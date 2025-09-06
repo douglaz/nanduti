@@ -133,12 +133,7 @@ impl FederationManager {
                 average_latency_ms: 0,
                 total_payments: 0,
                 total_volume: Amount::from_msats(0),
-                last_updated: Timestamp(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                ),
+                last_updated: Timestamp::now(),
             },
             client: None,
         };
@@ -300,12 +295,12 @@ impl FederationManager {
         fedimint_core::invite_code::InviteCode,
     )> {
         let federation_id_str = invite_code.federation_id().to_string();
-        let federation_id = FederationId(federation_id_str.clone());
+        let federation_id = FederationId::new(federation_id_str.clone());
 
         // Try to extract federation name from the invite code
         // This would typically come from the federation config after joining
         let federation_prefix = &federation_id_str[0..8.min(federation_id_str.len())];
-        let federation_name = FederationName(format!("Federation {federation_prefix}"));
+        let federation_name = FederationName::new(format!("Federation {federation_prefix}"));
 
         Ok((federation_id, federation_name, invite_code.clone()))
     }

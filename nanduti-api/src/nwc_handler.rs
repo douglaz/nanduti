@@ -108,12 +108,8 @@ impl NwcHandler {
 
         // Store initial transaction before payment
         let uuid = uuid::Uuid::new_v4();
-        let transaction_id = TransactionId(format!("tx_{uuid}"));
-        let created_at = Timestamp(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs(),
-        );
+        let transaction_id = TransactionId::new(format!("tx_{uuid}"));
+        let created_at = Timestamp::now();
 
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
@@ -156,11 +152,7 @@ impl NwcHandler {
                 amount,
                 fees_paid: result.fees_paid,
                 created_at,
-                settled_at: Some(Timestamp(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)?
-                        .as_secs(),
-                )),
+                settled_at: Some(Timestamp::now()),
                 metadata: None,
             };
             storage.store_transaction(&transaction)?;
@@ -201,7 +193,7 @@ impl NwcHandler {
         let transaction = Transaction {
             id: {
                 let uuid = uuid::Uuid::new_v4();
-                TransactionId(format!("tx_{uuid}"))
+                TransactionId::new(format!("tx_{uuid}"))
             },
             federation_id: federation.id.clone(),
             transaction_type: TransactionType::Incoming,
@@ -212,11 +204,7 @@ impl NwcHandler {
             payment_hash: invoice.payment_hash.clone(),
             amount,
             fees_paid: None,
-            created_at: Timestamp(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)?
-                    .as_secs(),
-            ),
+            created_at: Timestamp::now(),
             settled_at: None,
             metadata: None,
         };
@@ -325,14 +313,10 @@ impl NwcHandler {
 
         // Store initial transaction before payment
         let uuid = uuid::Uuid::new_v4();
-        let transaction_id = TransactionId(format!("tx_{uuid}"));
-        let created_at = Timestamp(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs(),
-        );
+        let transaction_id = TransactionId::new(format!("tx_{uuid}"));
+        let created_at = Timestamp::now();
         let pubkey = params.pubkey.as_str();
-        let description = Some(Description(format!("Keysend to {pubkey}")));
+        let description = Some(Description::new(format!("Keysend to {pubkey}")));
 
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
@@ -343,7 +327,7 @@ impl NwcHandler {
                 invoice: None,
                 description: description.clone(),
                 preimage: None,
-                payment_hash: PaymentHash(String::new()), // Will be updated after payment
+                payment_hash: PaymentHash::new(String::new()), // Will be updated after payment
                 amount,
                 fees_paid: None,
                 created_at,
@@ -380,11 +364,7 @@ impl NwcHandler {
                 amount,
                 fees_paid: result.fees_paid,
                 created_at,
-                settled_at: Some(Timestamp(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)?
-                        .as_secs(),
-                )),
+                settled_at: Some(Timestamp::now()),
                 metadata: None,
             };
             storage.store_transaction(&transaction)?;
