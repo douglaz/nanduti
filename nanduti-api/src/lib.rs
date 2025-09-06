@@ -104,19 +104,19 @@ fn create_http_router(app_state: Arc<AppState>) -> axum::Router {
                 .post(handlers::federations::add_federation),
         )
         .route(
-            "/api/v1/federations/:id",
+            "/api/v1/federations/{id}",
             get(handlers::federations::get_federation),
         )
         .route(
-            "/api/v1/federations/:id",
+            "/api/v1/federations/{id}",
             delete(handlers::federations::remove_federation),
         )
         .route(
-            "/api/v1/federations/:id/balance",
+            "/api/v1/federations/{id}/balance",
             get(handlers::federations::get_federation_balance),
         )
         .route(
-            "/api/v1/federations/:id/gateways",
+            "/api/v1/federations/{id}/gateways",
             get(handlers::federations::list_federation_gateways),
         )
         // Invoice endpoints
