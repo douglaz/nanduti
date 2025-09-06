@@ -330,8 +330,8 @@ async fn serve(args: ServeArgs) -> Result<()> {
         relays: args.relays,
         data_dir: args.data_dir,
         routing_strategy: args.routing_strategy.into(),
-        max_payment_sats: args.max_payment_sats,
-        daily_limit_sats: args.daily_limit_sats,
+        max_payment_amount: args.max_payment_sats.map(Amount::from_sats),
+        daily_limit_amount: args.daily_limit_sats.map(Amount::from_sats),
     };
 
     // Start server
@@ -346,9 +346,10 @@ async fn add_federation(args: AddFederationArgs, api_url: &str) -> Result<()> {
     let invite_code = fedimint_core::invite_code::InviteCode::from_str(&args.invite_code)
         .context("Invalid invite code")?;
     let response = client.add_federation(invite_code).await?;
-    let federation_id = &response.federation_id;
-    let name = &response.name;
-    println!("Successfully added federation: {federation_id} ({name})");
+    println!(
+        "Successfully added federation: {} ({})",
+        response.federation_id, response.name
+    );
     Ok(())
 }
 
@@ -356,8 +357,7 @@ async fn remove_federation(args: RemoveFederationArgs, api_url: &str) -> Result<
     let client = api_client::ApiClient::new(api_url.to_string())?;
     let federation_id = FederationId::new(args.federation.clone());
     client.remove_federation(&federation_id).await?;
-    let federation = &args.federation;
-    println!("Successfully removed federation: {federation}");
+    println!("Successfully removed federation: {}", args.federation);
     Ok(())
 }
 
@@ -367,8 +367,7 @@ async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()
 
     match args.format {
         OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&federations)?;
-            println!("{json}");
+            println!("{}", serde_json::to_string_pretty(&federations)?);
         }
         OutputFormat::Table => {
             println!("Federations:");
@@ -488,7 +487,7 @@ async fn list_gateways(args: GatewaysArgs, api_url: &str) -> Result<()> {
                             } else {
                                 gateway.api.to_string()
                             };
-                            let base_fee = gateway.base_fee_msat;
+                            let base_fee = gateway.base_fee_msat.as_msats();
                             let base_fee_str = format!("{base_fee} msat");
                             let prop_fee = gateway.proportional_fee_ppm;
                             let prop_fee_str = format!("{prop_fee}/M");
@@ -528,8 +527,8 @@ async fn new_connection(args: NewConnectionArgs, api_url: &str) -> Result<()> {
 
     let request = api_client::CreateConnectionRequest {
         name: ConnectionName::new(args.name),
-        daily_limit_sats: args.daily_limit_sats,
-        per_payment_limit_sats: args.per_payment_limit_sats,
+        daily_limit: args.daily_limit_sats.map(Amount::from_sats),
+        per_payment_limit: args.per_payment_limit_sats.map(Amount::from_sats),
         allowed_federations,
         relays: relays.into_iter().map(RelayUrl::new).collect(),
         lud16: args.lud16.map(LightningAddress::new),
@@ -615,7 +614,7 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
                     "{:<10} {:<20} {:<12} {:<15} {:<10}",
                     tx.transaction_type,
                     created,
-                    tx.amount_sats,
+                    tx.amount.as_sats(),
                     &tx.federation_id.as_str()[..15.min(tx.federation_id.as_str().len())],
                     tx.state
                 );
@@ -645,11 +644,12 @@ async fn pay_invoice(args: PayInvoiceArgs, api_url: &str) -> Result<()> {
             println!("Payment hash: {payment_hash}");
             let preimage = &response.preimage;
             println!("Preimage: {preimage}");
-            if let Some(fees) = response.fees_paid_msats {
-                println!("Fees paid: {fees} msats");
+            if let Some(fees) = response.fees_paid {
+                let fees_msats = fees.as_msats();
+                println!("Fees paid: {fees_msats} msats");
             }
-            let amount = response.amount_paid_msats;
-            println!("Amount paid: {amount} msats");
+            let amount_msats = response.amount_paid.as_msats();
+            println!("Amount paid: {amount_msats} msats");
             let federation = &response.federation_id;
             println!("Federation: {federation}");
         }
@@ -682,8 +682,8 @@ async fn create_invoice(args: CreateInvoiceArgs, api_url: &str) -> Result<()> {
             println!("Invoice: {invoice}");
             let payment_hash = &response.payment_hash;
             println!("Payment hash: {payment_hash}");
-            let amount = response.amount_sats;
-            println!("Amount: {amount} sats");
+            let amount_sats = response.amount.as_sats();
+            println!("Amount: {amount_sats} sats");
             let federation = &response.federation_id;
             println!("Federation: {federation}");
         }

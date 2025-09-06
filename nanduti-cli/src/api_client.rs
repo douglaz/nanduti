@@ -286,7 +286,7 @@ pub struct FederationInfo {
 pub struct GatewayInfo {
     pub gateway_id: GatewayId,
     pub api: GatewayApiUrl,
-    pub base_fee_msat: u32,
+    pub base_fee_msat: Amount,
     pub proportional_fee_ppm: u32,
 }
 
@@ -302,7 +302,7 @@ pub struct CreateInvoiceRequest {
 pub struct CreateInvoiceResponse {
     pub invoice: Bolt11String,
     pub payment_hash: PaymentHash,
-    pub amount_sats: u64,
+    pub amount: Amount,
     pub amount_msats: u64,
     pub federation_id: FederationId,
 }
@@ -317,8 +317,8 @@ pub struct PayInvoiceRequest {
 pub struct PayInvoiceResponse {
     pub payment_hash: PaymentHash,
     pub preimage: Preimage,
-    pub amount_paid_msats: u64,
-    pub fees_paid_msats: Option<u64>,
+    pub amount_paid: Amount,
+    pub fees_paid: Option<Amount>,
     pub federation_id: FederationId,
 }
 
@@ -328,7 +328,7 @@ pub struct TransactionInfo {
     pub federation_id: FederationId,
     pub transaction_type: TransactionType,
     pub state: TransactionState,
-    pub amount_sats: u64,
+    pub amount: Amount,
     pub description: Option<Description>,
     pub payment_hash: PaymentHash,
     pub created_at: Timestamp,
@@ -338,8 +338,8 @@ pub struct TransactionInfo {
 #[derive(Debug, Serialize)]
 pub struct CreateConnectionRequest {
     pub name: ConnectionName,
-    pub daily_limit_sats: Option<u64>,
-    pub per_payment_limit_sats: Option<u64>,
+    pub daily_limit: Option<Amount>,
+    pub per_payment_limit: Option<Amount>,
     pub allowed_federations: Vec<FederationId>,
     pub relays: Vec<RelayUrl>,
     pub lud16: Option<LightningAddress>,

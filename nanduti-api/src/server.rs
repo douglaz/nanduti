@@ -19,8 +19,7 @@ impl Server {
 
     /// Start the server
     pub async fn run(self) -> Result<()> {
-        let addr = self.addr;
-        info!("Starting API server on {addr}");
+        info!("Starting API server on {}", self.addr);
 
         let listener = tokio::net::TcpListener::bind(self.addr).await?;
         axum::serve(listener, self.router).await?;

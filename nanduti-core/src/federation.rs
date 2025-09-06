@@ -86,8 +86,10 @@ impl FederationManager {
                         federation.client = Some(Arc::new(client));
                     }
                     Err(e) => {
-                        let federation_id = &federation.id;
-                        warn!("Failed to initialize client for federation {federation_id}: {e}");
+                        warn!(
+                            "Failed to initialize client for federation {}: {e}",
+                            federation.id
+                        );
                         federation.status = FederationStatus::Offline;
                     }
                 }

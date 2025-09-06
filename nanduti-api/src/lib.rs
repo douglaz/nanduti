@@ -18,14 +18,13 @@ pub use state::AppState;
 pub use types::*;
 
 use anyhow::Result;
+use nanduti_core::models::Amount;
 use std::sync::Arc;
 use tracing::info;
 
 /// Start the NWC API server
 pub async fn start_server(config: ServerConfig) -> Result<()> {
-    let host = &config.host;
-    let port = config.port;
-    info!("Starting NWC API server on {host}:{port}");
+    info!("Starting NWC API server on {}:{}", config.host, config.port);
 
     // Create application state with all components
     let app_state = Arc::new(
@@ -55,8 +54,7 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     let server = Server::new(http_router, addr);
 
     info!("NWC server started successfully");
-    let pubkey = app_state.nostr_client.public_key();
-    info!("Wallet public key: {pubkey}");
+    info!("Wallet public key: {}", app_state.nostr_client.public_key());
     info!("Listening on: {addr}");
 
     // Run the HTTP server
@@ -144,6 +142,6 @@ pub struct ServerConfig {
     pub relays: Vec<String>,
     pub data_dir: Option<std::path::PathBuf>,
     pub routing_strategy: RoutingStrategy,
-    pub max_payment_sats: Option<u64>,
-    pub daily_limit_sats: Option<u64>,
+    pub max_payment_amount: Option<Amount>,
+    pub daily_limit_amount: Option<Amount>,
 }

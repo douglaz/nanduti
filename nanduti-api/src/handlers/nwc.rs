@@ -10,8 +10,8 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 pub struct CreateConnectionRequest {
     pub name: ConnectionName,
-    pub daily_limit_sats: Option<u64>,
-    pub per_payment_limit_sats: Option<u64>,
+    pub daily_limit: Option<Amount>,
+    pub per_payment_limit: Option<Amount>,
     pub allowed_federations: Vec<FederationId>, // Federation IDs or ["*"] for all
     pub relays: Vec<RelayUrl>,
     pub lud16: Option<LightningAddress>,
@@ -65,8 +65,8 @@ pub async fn create_nwc_connection(
             .iter()
             .map(|f| f.to_string())
             .collect(),
-        daily_limit_msats: req.daily_limit_sats.map(|s| s * 1000),
-        per_payment_limit_msats: req.per_payment_limit_sats.map(|s| s * 1000),
+        daily_limit_msats: req.daily_limit.map(|a| a.as_msats()),
+        per_payment_limit_msats: req.per_payment_limit.map(|a| a.as_msats()),
         allowed_methods: vec![
             "pay_invoice".to_string(),
             "make_invoice".to_string(),

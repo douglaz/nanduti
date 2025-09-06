@@ -45,7 +45,7 @@ pub struct BalanceResponse {
 pub struct GatewayInfo {
     pub gateway_id: GatewayId,
     pub api: GatewayApiUrl,
-    pub base_fee_msat: u32,
+    pub base_fee_msat: Amount,
     pub proportional_fee_ppm: u32,
     pub vetting_status: GatewayVettingStatus,
 }
@@ -163,7 +163,7 @@ pub async fn list_federation_gateways(
             .map(|(g, vetting_status)| GatewayInfo {
                 gateway_id: GatewayId::new(g.info.gateway_id.to_string()),
                 api: GatewayApiUrl::new(g.info.api.to_string()),
-                base_fee_msat: g.info.fees.base_msat,
+                base_fee_msat: Amount::from_msats(g.info.fees.base_msat as u64),
                 proportional_fee_ppm: g.info.fees.proportional_millionths,
                 vetting_status,
             })

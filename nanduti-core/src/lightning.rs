@@ -106,7 +106,7 @@ impl LightningOperation {
                 let hint = RouteHint {
                     pubkey: hex::encode(hop.src_node_id.serialize()),
                     short_channel_id: hop.short_channel_id.to_string(),
-                    fee_base_msat: hop.fees.base_msat,
+                    fee_base_msat: Amount::from_msats(hop.fees.base_msat as u64),
                     fee_proportional_millionths: hop.fees.proportional_millionths,
                     cltv_expiry_delta: hop.cltv_expiry_delta,
                 };
@@ -123,7 +123,7 @@ impl LightningOperation {
 pub struct RouteHint {
     pub pubkey: String,
     pub short_channel_id: String,
-    pub fee_base_msat: u32,
+    pub fee_base_msat: Amount,
     pub fee_proportional_millionths: u32,
     pub cltv_expiry_delta: u16,
 }

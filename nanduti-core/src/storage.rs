@@ -73,8 +73,7 @@ impl Storage {
             let data = serde_json::to_vec(federation).context("Failed to serialize federation")?;
             tree.insert(federation.id.as_bytes(), data)
                 .context("Failed to store federation")?;
-            let federation_id = &federation.id;
-            debug!("Stored federation: {federation_id}");
+            debug!("Stored federation: {}", federation.id);
         }
         Ok(())
     }
@@ -115,8 +114,7 @@ impl Storage {
         if let Some(tree) = &self.federations {
             tree.remove(federation_id.as_bytes())
                 .context("Failed to remove federation")?;
-            let federation_id = federation_id.as_str();
-            debug!("Removed federation: {federation_id}");
+            debug!("Removed federation: {}", federation_id.as_str());
         }
         Ok(())
     }
@@ -128,8 +126,7 @@ impl Storage {
                 serde_json::to_vec(transaction).context("Failed to serialize transaction")?;
             tree.insert(transaction.id.as_bytes(), data)
                 .context("Failed to store transaction")?;
-            let transaction_id = &transaction.id;
-            debug!("Stored transaction: {transaction_id}");
+            debug!("Stored transaction: {}", transaction.id);
         }
         Ok(())
     }
@@ -209,8 +206,7 @@ impl Storage {
             let data = serde_json::to_vec(connection).context("Failed to serialize connection")?;
             tree.insert(connection.id.as_bytes(), data)
                 .context("Failed to store connection")?;
-            let connection_id = &connection.id;
-            debug!("Stored connection: {connection_id}");
+            debug!("Stored connection: {}", connection.id);
         }
         Ok(())
     }

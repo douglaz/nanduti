@@ -146,11 +146,9 @@ impl NostrClient {
 
         self.client.send_event(&event_nip04).await?;
 
-        let pubkey = recipient_pubkey.to_hex();
         debug!(
-            "Sent {response_type} notification to {pubkey}",
-            response_type = notification_type,
-            pubkey = pubkey
+            "Sent {notification_type} notification to {pubkey}",
+            pubkey = recipient_pubkey.to_hex()
         );
         Ok(())
     }
