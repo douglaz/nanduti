@@ -178,7 +178,7 @@ impl NwcResponse {
             payment_hash: invoice.payment_hash,
             amount: invoice.amount,
             created_at: transaction.created_at,
-            expires_at: invoice.expiry.map(|e| transaction.created_at + e.0),
+            expires_at: invoice.expiry.map(|e| transaction.created_at + e.as_secs()),
         };
         Self {
             result_type: "make_invoice".to_string(),

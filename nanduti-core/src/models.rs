@@ -202,6 +202,24 @@ impl PaymentHash {
     pub fn new(hash: String) -> Self {
         Self(hash)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for PaymentHash {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for PaymentHash {
@@ -219,6 +237,24 @@ impl Preimage {
     pub fn new(preimage: String) -> Self {
         Self(preimage)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for Preimage {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for Preimage {
@@ -235,6 +271,24 @@ pub struct PublicKey(pub String);
 impl PublicKey {
     pub fn new(key: String) -> Self {
         Self(key)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for PublicKey {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
@@ -274,6 +328,26 @@ impl Description {
     pub fn new(desc: String) -> Self {
         Self(desc)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for Description {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Description {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 /// Transaction identifier
@@ -284,6 +358,24 @@ pub struct TransactionId(pub String);
 impl TransactionId {
     pub fn new(id: String) -> Self {
         Self(id)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for TransactionId {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
@@ -323,6 +415,22 @@ impl Timestamp {
     pub fn as_secs(&self) -> u64 {
         self.0
     }
+
+    pub fn as_i64(&self) -> i64 {
+        self.0 as i64
+    }
+}
+
+impl From<u64> for Timestamp {
+    fn from(secs: u64) -> Self {
+        Self(secs)
+    }
+}
+
+impl From<Timestamp> for u64 {
+    fn from(ts: Timestamp) -> u64 {
+        ts.0
+    }
 }
 
 /// Expiry duration in seconds
@@ -340,6 +448,18 @@ impl Expiry {
     }
 }
 
+impl From<u64> for Expiry {
+    fn from(secs: u64) -> Self {
+        Self(secs)
+    }
+}
+
+impl From<Expiry> for u64 {
+    fn from(exp: Expiry) -> u64 {
+        exp.0
+    }
+}
+
 /// Federation identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -348,6 +468,24 @@ pub struct FederationId(pub String);
 impl FederationId {
     pub fn new(id: String) -> Self {
         Self(id)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for FederationId {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
@@ -366,6 +504,20 @@ impl FederationName {
     pub fn new(name: String) -> Self {
         Self(name)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for FederationName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for FederationName {
@@ -382,6 +534,20 @@ pub struct GatewayId(pub String);
 impl GatewayId {
     pub fn new(id: String) -> Self {
         Self(id)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for GatewayId {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
@@ -400,6 +566,20 @@ impl ConnectionId {
     pub fn new(id: String) -> Self {
         Self(id)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for ConnectionId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for ConnectionId {
@@ -416,6 +596,20 @@ pub struct ConnectionName(pub String);
 impl ConnectionName {
     pub fn new(name: String) -> Self {
         Self(name)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for ConnectionName {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
@@ -434,6 +628,20 @@ impl LightningAddress {
     pub fn new(address: String) -> Self {
         Self(address)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for LightningAddress {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for LightningAddress {
@@ -450,6 +658,20 @@ pub struct RelayUrl(pub String);
 impl RelayUrl {
     pub fn new(url: String) -> Self {
         Self(url)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for RelayUrl {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
@@ -468,6 +690,20 @@ impl GatewayApiUrl {
     pub fn new(url: String) -> Self {
         Self(url)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for GatewayApiUrl {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for GatewayApiUrl {
@@ -484,6 +720,20 @@ pub struct ConnectionUri(pub String);
 impl ConnectionUri {
     pub fn new(uri: String) -> Self {
         Self(uri)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for ConnectionUri {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 

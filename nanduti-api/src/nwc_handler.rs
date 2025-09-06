@@ -83,10 +83,10 @@ impl NwcHandler {
             serde_json::from_value(params).context("Invalid pay_invoice parameters")?;
 
         // Parse invoice
-        let invoice = LightningOperation::parse_invoice(&params.invoice.0)?;
+        let invoice = LightningOperation::parse_invoice(params.invoice.as_str())?;
 
         // Validate invoice
-        LightningOperation::validate_invoice(&params.invoice.0)?;
+        LightningOperation::validate_invoice(params.invoice.as_str())?;
 
         // Determine amount
         let amount = if let Some(override_amount) = params.amount {
@@ -178,7 +178,7 @@ impl NwcHandler {
         let description = params
             .description
             .as_ref()
-            .map(|d| d.0.clone())
+            .map(|d| d.to_string())
             .unwrap_or_else(|| "Payment".to_string());
 
         // Select a federation (round-robin or least loaded)
@@ -194,7 +194,7 @@ impl NwcHandler {
             .ok_or_else(|| anyhow!("Federation client not initialized"))?;
 
         let invoice = client
-            .make_invoice(amount, description, params.expiry.map(|e| e.0))
+            .make_invoice(amount, description, params.expiry.map(|e| e.as_secs()))
             .await?;
 
         // Create transaction record
@@ -318,7 +318,7 @@ impl NwcHandler {
 
         let federation_id = &federation.id;
         let amount_msats = amount.as_msats();
-        let pubkey = &params.pubkey.0;
+        let pubkey = params.pubkey.as_str();
         info!(
             "Sending keysend via federation {federation_id} for {amount_msats} msats to {pubkey}"
         );
@@ -331,7 +331,7 @@ impl NwcHandler {
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_secs(),
         );
-        let pubkey = &params.pubkey.0;
+        let pubkey = params.pubkey.as_str();
         let description = Some(Description(format!("Keysend to {pubkey}")));
 
         if let Some(storage) = &self.storage {
@@ -360,7 +360,7 @@ impl NwcHandler {
 
         let preimage = params
             .preimage
-            .map(|p| hex::decode(p.0))
+            .map(|p| hex::decode(p.as_str()))
             .transpose()
             .context("Invalid preimage hex")?;
 
@@ -436,13 +436,13 @@ impl NwcHandler {
             // Build response based on transaction state
             let settled = matches!(tx.state, TransactionState::Settled);
             let response = serde_json::json!({
-                "invoice": tx.invoice.as_ref().map(|i| i.0.clone()),
+                "invoice": tx.invoice.as_ref().map(|i| i.to_string()),
                 "amount": tx.amount.as_msats() / 1000, // Convert to sats for NWC
-                "payment_hash": tx.payment_hash.0,
-                "preimage": tx.preimage.as_ref().map(|p| p.0.clone()),
-                "settled_at": tx.settled_at.map(|t| t.0),
-                "created_at": tx.created_at.0,
-                "description": tx.description.as_ref().map(|d| d.0.clone()),
+                "payment_hash": tx.payment_hash.to_string(),
+                "preimage": tx.preimage.as_ref().map(|p| p.to_string()),
+                "settled_at": tx.settled_at.map(|t| t.as_secs()),
+                "created_at": tx.created_at.as_secs(),
+                "description": tx.description.as_ref().map(|d| d.to_string()),
                 "fees_paid": tx.fees_paid.map(|f| f.as_msats() / 1000),
                 "settled": settled,
             });

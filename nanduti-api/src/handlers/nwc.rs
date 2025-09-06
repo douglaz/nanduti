@@ -50,20 +50,20 @@ pub async fn create_nwc_connection(
     // Generate connection URI
     let client_connection = nanduti_core::keys::NwcConnection::generate(
         wallet_keys.public_key.clone(),
-        req.relays.iter().map(|r| r.0.clone()).collect(),
-        req.lud16.as_ref().map(|l| l.0.clone()),
+        req.relays.iter().map(|r| r.to_string()).collect(),
+        req.lud16.as_ref().map(|l| l.to_string()),
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Store connection
     let connection = NwcConnection {
         id: uuid::Uuid::new_v4().to_string(),
-        name: req.name.0.clone(),
+        name: req.name.to_string(),
         pubkey: wallet_keys.public_key.clone(),
         allowed_federations: req
             .allowed_federations
             .iter()
-            .map(|f| f.0.clone())
+            .map(|f| f.to_string())
             .collect(),
         daily_limit_msats: req.daily_limit_sats.map(|s| s * 1000),
         per_payment_limit_msats: req.per_payment_limit_sats.map(|s| s * 1000),

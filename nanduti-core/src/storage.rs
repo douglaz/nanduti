@@ -71,7 +71,7 @@ impl Storage {
     pub fn store_federation(&self, federation: &Federation) -> Result<()> {
         if let Some(tree) = &self.federations {
             let data = serde_json::to_vec(federation).context("Failed to serialize federation")?;
-            tree.insert(federation.id.0.as_bytes(), data)
+            tree.insert(federation.id.as_bytes(), data)
                 .context("Failed to store federation")?;
             let federation_id = &federation.id;
             debug!("Stored federation: {federation_id}");
@@ -83,7 +83,7 @@ impl Storage {
     pub fn get_federation(&self, federation_id: &FederationId) -> Result<Option<Federation>> {
         if let Some(tree) = &self.federations {
             if let Some(data) = tree
-                .get(federation_id.0.as_bytes())
+                .get(federation_id.as_bytes())
                 .context("Failed to read federation")?
             {
                 let federation: Federation =
@@ -113,9 +113,9 @@ impl Storage {
     /// Remove a federation
     pub fn remove_federation(&self, federation_id: &FederationId) -> Result<()> {
         if let Some(tree) = &self.federations {
-            tree.remove(federation_id.0.as_bytes())
+            tree.remove(federation_id.as_bytes())
                 .context("Failed to remove federation")?;
-            let federation_id = &federation_id.0;
+            let federation_id = federation_id.as_str();
             debug!("Removed federation: {federation_id}");
         }
         Ok(())
@@ -126,7 +126,7 @@ impl Storage {
         if let Some(tree) = &self.transactions {
             let data =
                 serde_json::to_vec(transaction).context("Failed to serialize transaction")?;
-            tree.insert(transaction.id.0.as_bytes(), data)
+            tree.insert(transaction.id.as_bytes(), data)
                 .context("Failed to store transaction")?;
             let transaction_id = &transaction.id;
             debug!("Stored transaction: {transaction_id}");
@@ -177,7 +177,7 @@ impl Storage {
                 let transaction: Transaction =
                     serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
 
-                if transaction.payment_hash.0 == payment_hash {
+                if transaction.payment_hash.as_str() == payment_hash {
                     return Ok(Some(transaction));
                 }
             }
@@ -194,7 +194,7 @@ impl Storage {
                     serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
 
                 if let Some(tx_invoice) = &transaction.invoice {
-                    if tx_invoice.0 == invoice {
+                    if tx_invoice.as_str() == invoice {
                         return Ok(Some(transaction));
                     }
                 }
@@ -223,7 +223,7 @@ impl Storage {
                 let connection: NwcConnection =
                     serde_json::from_slice(&value).context("Failed to deserialize connection")?;
 
-                if connection.pubkey == pubkey.0 {
+                if connection.pubkey == pubkey.as_str() {
                     return Ok(Some(connection));
                 }
             }

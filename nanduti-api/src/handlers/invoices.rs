@@ -65,7 +65,7 @@ pub async fn create_invoice(
     // Create invoice
     let description = req.description.clone();
     let invoice = client
-        .make_invoice(amount, req.description.0, req.expiry)
+        .make_invoice(amount, req.description.into_string(), req.expiry)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

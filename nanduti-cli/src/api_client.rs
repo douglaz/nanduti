@@ -81,7 +81,7 @@ impl ApiClient {
             .get(format!(
                 "{base_url}/api/v1/federations/{id}",
                 base_url = self.base_url,
-                id = id.0
+                id = id.as_str()
             ))
             .send()
             .await?;
@@ -96,7 +96,7 @@ impl ApiClient {
             .delete(format!(
                 "{base_url}/api/v1/federations/{id}",
                 base_url = self.base_url,
-                id = id.0
+                id = id.as_str()
             ))
             .send()
             .await?;
@@ -120,7 +120,7 @@ impl ApiClient {
             .get(format!(
                 "{base_url}/api/v1/federations/{id}/balance",
                 base_url = self.base_url,
-                id = id.0
+                id = id.as_str()
             ))
             .send()
             .await?;
@@ -135,7 +135,7 @@ impl ApiClient {
             .get(format!(
                 "{base_url}/api/v1/federations/{id}/gateways",
                 base_url = self.base_url,
-                id = id.0
+                id = id.as_str()
             ))
             .send()
             .await?;
@@ -193,7 +193,7 @@ impl ApiClient {
         let mut params = Vec::new();
 
         if let Some(id) = federation_id {
-            let id = &id.0;
+            let id = id.as_str();
             params.push(format!("federation_id={id}"));
         }
         if let Some(limit) = limit {

@@ -482,11 +482,11 @@ async fn list_gateways(args: GatewaysArgs, api_url: &str) -> Result<()> {
                         println!("  {separator}");
                         for gateway in gateways {
                             let gateway_id = &gateway.gateway_id;
-                            let api = if gateway.api.0.len() > 20 {
-                                let prefix = &gateway.api.0[..17];
+                            let api = if gateway.api.as_str().len() > 20 {
+                                let prefix = &gateway.api.as_str()[..17];
                                 format!("{prefix}...")
                             } else {
-                                gateway.api.0.clone()
+                                gateway.api.to_string()
                             };
                             let base_fee = gateway.base_fee_msat;
                             let base_fee_str = format!("{base_fee} msat");
@@ -569,7 +569,7 @@ async fn list_connections(args: ListConnectionsArgs, api_url: &str) -> Result<()
             let separator = "-".repeat(70);
             println!("{separator}");
             for connection in connections {
-                let created = chrono::DateTime::from_timestamp(connection.created_at.0 as i64, 0)
+                let created = chrono::DateTime::from_timestamp(connection.created_at.as_i64(), 0)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
                     .unwrap_or_else(|| "Unknown".to_string());
 
@@ -607,7 +607,7 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
             let separator = "-".repeat(80);
             println!("{separator}");
             for tx in transactions {
-                let created = chrono::DateTime::from_timestamp(tx.created_at.0 as i64, 0)
+                let created = chrono::DateTime::from_timestamp(tx.created_at.as_i64(), 0)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
                     .unwrap_or_else(|| "Unknown".to_string());
 
@@ -616,7 +616,7 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
                     tx.transaction_type,
                     created,
                     tx.amount_sats,
-                    &tx.federation_id.0[..15.min(tx.federation_id.0.len())],
+                    &tx.federation_id.as_str()[..15.min(tx.federation_id.as_str().len())],
                     tx.state
                 );
             }
