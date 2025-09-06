@@ -43,7 +43,7 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     let nostr_clone = app_state.nostr_client.clone();
     tokio::spawn(async move {
         if let Err(e) = handle_nostr_events(nostr_clone, event_handler).await {
-            tracing::error!("Nostr event handler error: {}", e);
+            tracing::error!("Nostr event handler error: {e}");
         }
     });
 

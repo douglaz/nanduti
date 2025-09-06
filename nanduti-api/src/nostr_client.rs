@@ -247,7 +247,7 @@ impl NostrClient {
 
                 // Handle the event
                 if let Err(e) = self.handle_single_event(event, handler.clone()).await {
-                    tracing::error!("Error handling event: {}", e);
+                    tracing::error!("Error handling event: {e}");
                 }
 
                 // Clean up old events if the set gets too large

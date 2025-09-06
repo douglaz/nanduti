@@ -72,7 +72,10 @@ pub async fn create_invoice(
     // Store transaction record
     use nanduti_core::models::{Transaction, TransactionState, TransactionType};
     let transaction = Transaction {
-        id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
+        id: {
+            let uuid = uuid::Uuid::new_v4();
+            TransactionId(format!("tx_{uuid}"))
+        },
         federation_id: federation.id.clone(),
         transaction_type: TransactionType::Incoming,
         state: TransactionState::Pending,

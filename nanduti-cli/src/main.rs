@@ -357,7 +357,8 @@ async fn remove_federation(args: RemoveFederationArgs, api_url: &str) -> Result<
     let client = api_client::ApiClient::new(api_url.to_string())?;
     let federation_id = FederationId::new(args.federation.clone());
     client.remove_federation(&federation_id).await?;
-    println!("Successfully removed federation: {}", args.federation);
+    let federation = &args.federation;
+    println!("Successfully removed federation: {federation}");
     Ok(())
 }
 
@@ -367,7 +368,8 @@ async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()
 
     match args.format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&federations)?);
+            let json = serde_json::to_string_pretty(&federations)?;
+            println!("{json}");
         }
         OutputFormat::Table => {
             println!("Federations:");
@@ -378,7 +380,8 @@ async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()
                 balance = "Balance (sats)",
                 status = "Status"
             );
-            println!("{}", "-".repeat(70));
+            let separator = "-".repeat(70);
+            println!("{separator}");
             for federation in federations {
                 let id = &federation.id;
                 let name = &federation.name;
@@ -409,12 +412,14 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
                         })
                     })
                     .collect();
-                println!("{}", serde_json::to_string_pretty(&balances)?);
+                let json = serde_json::to_string_pretty(&balances)?;
+                println!("{json}");
             }
             OutputFormat::Table => {
                 println!("Federation Balances:");
                 println!("{:<20} {:<20} {:<15}", "ID", "Name", "Balance (sats)");
-                println!("{}", "-".repeat(60));
+                let separator = "-".repeat(60);
+                println!("{separator}");
                 for federation in federations {
                     println!(
                         "{:<20} {:<20} {:<15}",
@@ -438,7 +443,7 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
                 );
             }
             OutputFormat::Table => {
-                println!("Total balance: {} sats", total_balance);
+                println!("Total balance: {total_balance} sats");
             }
         }
     }
@@ -457,12 +462,15 @@ async fn list_gateways(args: GatewaysArgs, api_url: &str) -> Result<()> {
     };
 
     for federation in federations {
-        println!("\nFederation: {} ({})", federation.name, federation.id);
+        let name = &federation.name;
+        let id = &federation.id;
+        println!("\nFederation: {name} ({id})");
 
         match client.list_federation_gateways(&federation.id).await {
             Ok(gateways) => match args.format {
                 OutputFormat::Json => {
-                    println!("{}", serde_json::to_string_pretty(&gateways)?);
+                    let json = serde_json::to_string_pretty(&gateways)?;
+                    println!("{json}");
                 }
                 OutputFormat::Table => {
                     if gateways.is_empty() {
@@ -473,18 +481,22 @@ async fn list_gateways(args: GatewaysArgs, api_url: &str) -> Result<()> {
                             "  {:<44} {:<20} {:<15} {:<15}",
                             "Gateway ID", "API", "Base Fee", "Prop Fee"
                         );
-                        println!("  {}", "-".repeat(100));
+                        let separator = "-".repeat(100);
+                        println!("  {separator}");
                         for gateway in gateways {
+                            let gateway_id = &gateway.gateway_id;
+                            let api = if gateway.api.0.len() > 20 {
+                                let prefix = &gateway.api.0[..17];
+                                format!("{prefix}...")
+                            } else {
+                                gateway.api.0.clone()
+                            };
+                            let base_fee = gateway.base_fee_msat;
+                            let base_fee_str = format!("{base_fee} msat");
+                            let prop_fee = gateway.proportional_fee_ppm;
+                            let prop_fee_str = format!("{prop_fee}/M");
                             println!(
-                                "  {:<44} {:<20} {:<15} {:<15}",
-                                gateway.gateway_id,
-                                if gateway.api.0.len() > 20 {
-                                    format!("{}...", &gateway.api.0[..17])
-                                } else {
-                                    gateway.api.0.clone()
-                                },
-                                format!("{} msat", gateway.base_fee_msat),
-                                format!("{}/M", gateway.proportional_fee_ppm)
+                                "  {gateway_id:<44} {api:<20} {base_fee_str:<15} {prop_fee_str:<15}"
                             );
                         }
                     }
@@ -529,10 +541,13 @@ async fn new_connection(args: NewConnectionArgs, api_url: &str) -> Result<()> {
     let response = client.create_nwc_connection(request).await?;
 
     println!("NWC Connection created!");
-    println!("Name: {}", response.name);
-    println!("Wallet Public Key: {}", response.pubkey);
+    let name = &response.name;
+    println!("Name: {name}");
+    let pubkey = &response.pubkey;
+    println!("Wallet Public Key: {pubkey}");
     println!("Connection URI:");
-    println!("{}", response.connection_uri);
+    let uri = &response.connection_uri;
+    println!("{uri}");
 
     Ok(())
 }
@@ -543,7 +558,8 @@ async fn list_connections(args: ListConnectionsArgs, api_url: &str) -> Result<()
 
     match args.format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&connections)?);
+            let json = serde_json::to_string_pretty(&connections)?;
+            println!("{json}");
         }
         OutputFormat::Table => {
             println!("NWC Connections:");
@@ -582,7 +598,8 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
 
     match args.format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&transactions)?);
+            let json = serde_json::to_string_pretty(&transactions)?;
+            println!("{json}");
         }
         OutputFormat::Table => {
             println!("Transactions:");
@@ -590,7 +607,8 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
                 "{:<10} {:<20} {:<12} {:<15} {:<10}",
                 "Type", "Created", "Amount (sats)", "Federation", "State"
             );
-            println!("{}", "-".repeat(80));
+            let separator = "-".repeat(80);
+            println!("{separator}");
             for tx in transactions {
                 let created = chrono::DateTime::from_timestamp(tx.created_at.0 as i64, 0)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
@@ -621,7 +639,8 @@ async fn pay_invoice(args: PayInvoiceArgs, api_url: &str) -> Result<()> {
 
     match args.format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&response)?);
+            let json = serde_json::to_string_pretty(&response)?;
+            println!("{json}");
         }
         OutputFormat::Table => {
             println!("Payment successful!");
@@ -657,7 +676,8 @@ async fn create_invoice(args: CreateInvoiceArgs, api_url: &str) -> Result<()> {
 
     match args.format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&response)?);
+            let json = serde_json::to_string_pretty(&response)?;
+            println!("{json}");
         }
         OutputFormat::Table => {
             println!("Invoice created successfully!");

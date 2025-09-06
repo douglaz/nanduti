@@ -107,7 +107,8 @@ impl NwcHandler {
         );
 
         // Store initial transaction before payment
-        let transaction_id = TransactionId(format!("tx_{}", uuid::Uuid::new_v4()));
+        let uuid = uuid::Uuid::new_v4();
+        let transaction_id = TransactionId(format!("tx_{uuid}"));
         let created_at = Timestamp(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
@@ -200,7 +201,10 @@ impl NwcHandler {
 
         // Create transaction record
         let transaction = Transaction {
-            id: TransactionId(format!("tx_{}", uuid::Uuid::new_v4())),
+            id: {
+                let uuid = uuid::Uuid::new_v4();
+                TransactionId(format!("tx_{uuid}"))
+            },
             federation_id: federation.id.clone(),
             transaction_type: TransactionType::Incoming,
             state: TransactionState::Pending,
@@ -322,13 +326,15 @@ impl NwcHandler {
         );
 
         // Store initial transaction before payment
-        let transaction_id = TransactionId(format!("tx_{}", uuid::Uuid::new_v4()));
+        let uuid = uuid::Uuid::new_v4();
+        let transaction_id = TransactionId(format!("tx_{uuid}"));
         let created_at = Timestamp(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_secs(),
         );
-        let description = Some(Description(format!("Keysend to {}", params.pubkey.0)));
+        let pubkey = &params.pubkey.0;
+        let description = Some(Description(format!("Keysend to {pubkey}")));
 
         if let Some(storage) = &self.storage {
             let transaction = Transaction {

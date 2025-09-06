@@ -27,7 +27,7 @@ impl ApiClient {
     pub async fn health(&self) -> Result<()> {
         let response = self
             .client
-            .get(format!("{}/health", self.base_url))
+            .get(format!("{base_url}/health", base_url = self.base_url))
             .send()
             .await?;
 
@@ -49,7 +49,10 @@ impl ApiClient {
 
         let response = self
             .client
-            .post(format!("{}/api/v1/federations", self.base_url))
+            .post(format!(
+                "{base_url}/api/v1/federations",
+                base_url = self.base_url
+            ))
             .json(&request)
             .send()
             .await?;
@@ -61,7 +64,10 @@ impl ApiClient {
     pub async fn list_federations(&self) -> Result<Vec<FederationInfo>> {
         let response = self
             .client
-            .get(format!("{}/api/v1/federations", self.base_url))
+            .get(format!(
+                "{base_url}/api/v1/federations",
+                base_url = self.base_url
+            ))
             .send()
             .await?;
 
@@ -72,7 +78,11 @@ impl ApiClient {
     pub async fn get_federation(&self, id: &FederationId) -> Result<FederationInfo> {
         let response = self
             .client
-            .get(format!("{}/api/v1/federations/{}", self.base_url, id.0))
+            .get(format!(
+                "{base_url}/api/v1/federations/{id}",
+                base_url = self.base_url,
+                id = id.0
+            ))
             .send()
             .await?;
 
@@ -83,7 +93,11 @@ impl ApiClient {
     pub async fn remove_federation(&self, id: &FederationId) -> Result<()> {
         let response = self
             .client
-            .delete(format!("{}/api/v1/federations/{}", self.base_url, id.0))
+            .delete(format!(
+                "{base_url}/api/v1/federations/{id}",
+                base_url = self.base_url,
+                id = id.0
+            ))
             .send()
             .await?;
 
@@ -136,7 +150,10 @@ impl ApiClient {
     ) -> Result<CreateInvoiceResponse> {
         let response = self
             .client
-            .post(format!("{}/api/v1/invoices", self.base_url))
+            .post(format!(
+                "{base_url}/api/v1/invoices",
+                base_url = self.base_url
+            ))
             .json(&request)
             .send()
             .await?;
@@ -150,7 +167,10 @@ impl ApiClient {
     pub async fn pay_invoice(&self, request: PayInvoiceRequest) -> Result<PayInvoiceResponse> {
         let response = self
             .client
-            .post(format!("{}/api/v1/payments", self.base_url))
+            .post(format!(
+                "{base_url}/api/v1/payments",
+                base_url = self.base_url
+            ))
             .json(&request)
             .send()
             .await?;
@@ -166,14 +186,16 @@ impl ApiClient {
         federation_id: Option<FederationId>,
         limit: Option<usize>,
     ) -> Result<Vec<TransactionInfo>> {
-        let mut url = format!("{}/api/v1/transactions", self.base_url);
+        let base_url = &self.base_url;
+        let mut url = format!("{base_url}/api/v1/transactions");
         let mut params = Vec::new();
 
         if let Some(id) = federation_id {
-            params.push(format!("federation_id={}", id.0));
+            let id = &id.0;
+            params.push(format!("federation_id={id}"));
         }
         if let Some(limit) = limit {
-            params.push(format!("limit={}", limit));
+            params.push(format!("limit={limit}"));
         }
 
         if !params.is_empty() {
@@ -195,7 +217,10 @@ impl ApiClient {
     ) -> Result<CreateConnectionResponse> {
         let response = self
             .client
-            .post(format!("{}/api/v1/nwc/connections", self.base_url))
+            .post(format!(
+                "{base_url}/api/v1/nwc/connections",
+                base_url = self.base_url
+            ))
             .json(&request)
             .send()
             .await?;
@@ -207,7 +232,10 @@ impl ApiClient {
     pub async fn list_nwc_connections(&self) -> Result<Vec<ConnectionInfo>> {
         let response = self
             .client
-            .get(format!("{}/api/v1/nwc/connections", self.base_url))
+            .get(format!(
+                "{base_url}/api/v1/nwc/connections",
+                base_url = self.base_url
+            ))
             .send()
             .await?;
 
