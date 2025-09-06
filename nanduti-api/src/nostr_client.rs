@@ -34,7 +34,8 @@ impl NostrClient {
         // Connect to relays
         client.connect().await;
 
-        info!("Connected to {} relays", client.relays().await.len());
+        let relay_count = client.relays().await.len();
+        info!("Connected to {relay_count} relays");
 
         Ok(Self { client, keys })
     }
@@ -145,10 +146,11 @@ impl NostrClient {
 
         self.client.send_event(&event_nip04).await?;
 
+        let pubkey = recipient_pubkey.to_hex();
         debug!(
-            "Sent {} notification to {}",
-            notification_type,
-            recipient_pubkey.to_hex()
+            "Sent {response_type} notification to {pubkey}",
+            response_type = notification_type,
+            pubkey = pubkey
         );
         Ok(())
     }
@@ -224,8 +226,8 @@ impl NostrClient {
             .pubkey(self.keys.public_key());
 
         info!(
-            "Listening for NWC requests on {} relays",
-            self.client.relays().await.len()
+            "Listening for NWC requests on {relay_count} relays",
+            relay_count = self.client.relays().await.len()
         );
 
         // Use proper event streaming (subscribe and poll)
@@ -270,7 +272,8 @@ impl NostrClient {
         use crate::encryption;
         use nanduti_core::nwc_protocol::NwcRequest;
 
-        debug!("Processing event from {}", event.pubkey);
+        let pubkey = &event.pubkey;
+        debug!("Processing event from {pubkey}");
 
         // Determine encryption method from tags
         let tags_vec: Vec<Tag> = event.tags.into_iter().collect();
@@ -290,7 +293,8 @@ impl NostrClient {
         let request: NwcRequest =
             serde_json::from_str(&decrypted_content).context("Failed to parse NWC request")?;
 
-        info!("Received NWC request: {}", request.method);
+        let method = &request.method;
+        info!("Received NWC request: {method}");
 
         // Handle the request
         let response = handler.handle_request(request).await?;

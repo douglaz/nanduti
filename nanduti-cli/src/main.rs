@@ -346,10 +346,9 @@ async fn add_federation(args: AddFederationArgs, api_url: &str) -> Result<()> {
     let invite_code = fedimint_core::invite_code::InviteCode::from_str(&args.invite_code)
         .context("Invalid invite code")?;
     let response = client.add_federation(invite_code).await?;
-    println!(
-        "Successfully added federation: {} ({})",
-        response.federation_id, response.name
-    );
+    let federation_id = &response.federation_id;
+    let name = &response.name;
+    println!("Successfully added federation: {federation_id} ({name})");
     Ok(())
 }
 
@@ -435,12 +434,10 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
 
         match args.format {
             OutputFormat::Json => {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "total_balance_sats": total_balance,
-                    })
-                );
+                let json_output = serde_json::json!({
+                    "total_balance_sats": total_balance,
+                });
+                println!("{json_output}");
             }
             OutputFormat::Table => {
                 println!("Total balance: {total_balance} sats");

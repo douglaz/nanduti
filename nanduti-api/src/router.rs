@@ -173,11 +173,9 @@ impl FederationRouter {
         for federation in federations {
             accumulated += federation.balance.as_msats();
             if accumulated >= random_point {
-                info!(
-                    "Balance-weighted selected federation: {} (balance: {} msats)",
-                    federation.id,
-                    federation.balance.as_msats()
-                );
+                let federation_id = &federation.id;
+                let balance = federation.balance.as_msats();
+                info!("Balance-weighted selected federation: {federation_id} (balance: {balance} msats)");
                 return Ok(federation);
             }
         }

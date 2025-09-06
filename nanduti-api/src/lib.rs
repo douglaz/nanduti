@@ -23,7 +23,9 @@ use tracing::info;
 
 /// Start the NWC API server
 pub async fn start_server(config: ServerConfig) -> Result<()> {
-    info!("Starting NWC API server on {}:{}", config.host, config.port);
+    let host = &config.host;
+    let port = config.port;
+    info!("Starting NWC API server on {host}:{port}");
 
     // Create application state with all components
     let app_state = Arc::new(
@@ -53,8 +55,9 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     let server = Server::new(http_router, addr);
 
     info!("NWC server started successfully");
-    info!("Wallet public key: {}", app_state.nostr_client.public_key());
-    info!("Listening on: {}", addr);
+    let pubkey = app_state.nostr_client.public_key();
+    info!("Wallet public key: {pubkey}");
+    info!("Listening on: {addr}");
 
     // Run the HTTP server
     server.run().await?;

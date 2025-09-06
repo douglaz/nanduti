@@ -184,11 +184,9 @@ impl NwcHandler {
         // Select a federation (round-robin or least loaded)
         let federation = self.router.select_federation_for_receive().await?;
 
-        info!(
-            "Creating invoice via federation {} for {} msats",
-            federation.id,
-            amount.as_msats()
-        );
+        let federation_id = &federation.id;
+        let amount_msats = amount.as_msats();
+        info!("Creating invoice via federation {federation_id} for {amount_msats} msats");
 
         let client = federation
             .client
@@ -318,11 +316,11 @@ impl NwcHandler {
         // Select federation
         let federation = self.router.select_federation(amount).await?;
 
+        let federation_id = &federation.id;
+        let amount_msats = amount.as_msats();
+        let pubkey = &params.pubkey.0;
         info!(
-            "Sending keysend via federation {} for {} msats to {}",
-            federation.id,
-            amount.as_msats(),
-            params.pubkey.0
+            "Sending keysend via federation {federation_id} for {amount_msats} msats to {pubkey}"
         );
 
         // Store initial transaction before payment
@@ -413,7 +411,7 @@ impl NwcHandler {
             if let Some(storage) = &self.storage {
                 storage
                     .get_transaction_by_payment_hash(&hash)
-                    .map_err(|e| anyhow::anyhow!("Failed to lookup transaction: {}", e))?
+                    .map_err(|e| anyhow::anyhow!("Failed to lookup transaction: {e}"))?
             } else {
                 None
             }
@@ -421,7 +419,7 @@ impl NwcHandler {
             if let Some(storage) = &self.storage {
                 storage
                     .get_transaction_by_invoice(&inv)
-                    .map_err(|e| anyhow::anyhow!("Failed to lookup transaction: {}", e))?
+                    .map_err(|e| anyhow::anyhow!("Failed to lookup transaction: {e}"))?
             } else {
                 None
             }

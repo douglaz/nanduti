@@ -106,7 +106,7 @@ impl ApiClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow!("Failed to remove federation: {}", error));
+            return Err(anyhow!("Failed to remove federation: {error}"));
         }
 
         Ok(())
@@ -118,8 +118,9 @@ impl ApiClient {
         let response = self
             .client
             .get(format!(
-                "{}/api/v1/federations/{}/balance",
-                self.base_url, id.0
+                "{base_url}/api/v1/federations/{id}/balance",
+                base_url = self.base_url,
+                id = id.0
             ))
             .send()
             .await?;
@@ -132,8 +133,9 @@ impl ApiClient {
         let response = self
             .client
             .get(format!(
-                "{}/api/v1/federations/{}/gateways",
-                self.base_url, id.0
+                "{base_url}/api/v1/federations/{id}/gateways",
+                base_url = self.base_url,
+                id = id.0
             ))
             .send()
             .await?;
@@ -255,7 +257,7 @@ async fn handle_response<T: for<'de> Deserialize<'de>>(response: reqwest::Respon
             .text()
             .await
             .unwrap_or_else(|_| "Unknown error".to_string());
-        Err(anyhow!("API error ({}): {}", status, error_text))
+        Err(anyhow!("API error ({status}): {error_text}"))
     }
 }
 
