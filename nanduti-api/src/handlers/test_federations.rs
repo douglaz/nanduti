@@ -7,7 +7,7 @@ mod tests {
     use axum::{
         body::Body,
         http::{Request, StatusCode},
-        routing::{delete, get, post},
+        routing::get,
         Router,
     };
     use nanduti_core::{federation::FederationManager, storage::Storage};
