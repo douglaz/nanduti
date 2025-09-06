@@ -125,7 +125,7 @@ impl TryFrom<&Invoice> for lightning_invoice::Bolt11Invoice {
     fn try_from(invoice: &Invoice) -> Result<Self> {
         use std::str::FromStr;
         lightning_invoice::Bolt11Invoice::from_str(invoice.bolt11.as_str())
-            .map_err(|e| anyhow::anyhow!("Failed to parse BOLT11 invoice: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to parse BOLT11 invoice: {e}"))
     }
 }
 

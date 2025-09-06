@@ -176,12 +176,12 @@ impl FederationManager {
 
         let federation = federations
             .remove(federation_id)
-            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
+            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
 
         // Cleanup client if needed
         if let Some(_client) = &federation.client {
             // Perform any cleanup operations
-            debug!("Cleaning up federation client for {}", federation_id);
+            debug!("Cleaning up federation client for {federation_id}");
         }
 
         // Remove from storage
@@ -205,7 +205,7 @@ impl FederationManager {
         federations
             .get(federation_id)
             .map(|f| f.as_ref().clone())
-            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))
+            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))
     }
 
     /// Get aggregate balance across all federations
@@ -225,7 +225,7 @@ impl FederationManager {
 
         let federation_arc = federations
             .get_mut(federation_id)
-            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
+            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
 
         let federation = Arc::make_mut(federation_arc);
 
@@ -253,7 +253,7 @@ impl FederationManager {
 
         let federation_arc = federations
             .get_mut(federation_id)
-            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
+            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
 
         let federation = Arc::make_mut(federation_arc);
         federation.metrics = metrics;
@@ -272,7 +272,7 @@ impl FederationManager {
 
         let federation = federations
             .get(federation_id)
-            .ok_or_else(|| anyhow!("Federation {} not found", federation_id))?;
+            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
 
         if let Some(client) = &federation.client {
             // Try to get balance as a health check

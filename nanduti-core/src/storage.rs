@@ -115,7 +115,8 @@ impl Storage {
         if let Some(tree) = &self.federations {
             tree.remove(federation_id.0.as_bytes())
                 .context("Failed to remove federation")?;
-            debug!("Removed federation: {}", federation_id.0);
+            let federation_id = &federation_id.0;
+            debug!("Removed federation: {federation_id}");
         }
         Ok(())
     }

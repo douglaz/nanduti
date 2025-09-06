@@ -33,7 +33,7 @@ pub async fn pay_invoice(
 ) -> Result<Json<PayInvoiceResponse>, (StatusCode, String)> {
     // Parse the invoice
     let bolt11 = Bolt11Invoice::from_str(req.invoice.as_str())
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid invoice: {}", e)))?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid invoice: {e}")))?;
 
     let invoice = Invoice::from(&bolt11);
 
@@ -66,7 +66,8 @@ pub async fn pay_invoice(
 
     // Store initial transaction record before payment
     use nanduti_core::models::{Transaction, TransactionState, TransactionType};
-    let transaction_id = TransactionId(format!("tx_{}", uuid::Uuid::new_v4()));
+    let uuid = uuid::Uuid::new_v4();
+    let transaction_id = TransactionId(format!("tx_{uuid}"));
     let created_at = Timestamp(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

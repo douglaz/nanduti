@@ -372,18 +372,19 @@ async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()
         OutputFormat::Table => {
             println!("Federations:");
             println!(
-                "{:<20} {:<20} {:<15} {:<10}",
-                "ID", "Name", "Balance (sats)", "Status"
+                "{id:<20} {name:<20} {balance:<15} {status:<10}",
+                id = "ID",
+                name = "Name",
+                balance = "Balance (sats)",
+                status = "Status"
             );
             println!("{}", "-".repeat(70));
             for federation in federations {
-                println!(
-                    "{:<20} {:<20} {:<15} {:<10}",
-                    federation.id,
-                    federation.name,
-                    federation.balance.as_sats(),
-                    federation.status
-                );
+                let id = &federation.id;
+                let name = &federation.name;
+                let balance = federation.balance.as_sats();
+                let status = &federation.status;
+                println!("{id:<20} {name:<20} {balance:<15} {status:<10}");
             }
         }
     }
@@ -546,8 +547,14 @@ async fn list_connections(args: ListConnectionsArgs, api_url: &str) -> Result<()
         }
         OutputFormat::Table => {
             println!("NWC Connections:");
-            println!("{:<30} {:<20} {:<15}", "Name", "Created", "Spent (sats)");
-            println!("{}", "-".repeat(70));
+            println!(
+                "{name:<30} {created:<20} {spent:<15}",
+                name = "Name",
+                created = "Created",
+                spent = "Spent (sats)"
+            );
+            let separator = "-".repeat(70);
+            println!("{separator}");
             for connection in connections {
                 let created = chrono::DateTime::from_timestamp(connection.created_at.0 as i64, 0)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
@@ -618,13 +625,17 @@ async fn pay_invoice(args: PayInvoiceArgs, api_url: &str) -> Result<()> {
         }
         OutputFormat::Table => {
             println!("Payment successful!");
-            println!("Payment hash: {}", response.payment_hash);
-            println!("Preimage: {}", response.preimage);
+            let payment_hash = &response.payment_hash;
+            println!("Payment hash: {payment_hash}");
+            let preimage = &response.preimage;
+            println!("Preimage: {preimage}");
             if let Some(fees) = response.fees_paid_msats {
-                println!("Fees paid: {} msats", fees);
+                println!("Fees paid: {fees} msats");
             }
-            println!("Amount paid: {} msats", response.amount_paid_msats);
-            println!("Federation: {}", response.federation_id);
+            let amount = response.amount_paid_msats;
+            println!("Amount paid: {amount} msats");
+            let federation = &response.federation_id;
+            println!("Federation: {federation}");
         }
     }
 
@@ -650,10 +661,14 @@ async fn create_invoice(args: CreateInvoiceArgs, api_url: &str) -> Result<()> {
         }
         OutputFormat::Table => {
             println!("Invoice created successfully!");
-            println!("Invoice: {}", response.invoice);
-            println!("Payment hash: {}", response.payment_hash);
-            println!("Amount: {} sats", response.amount_sats);
-            println!("Federation: {}", response.federation_id);
+            let invoice = &response.invoice;
+            println!("Invoice: {invoice}");
+            let payment_hash = &response.payment_hash;
+            println!("Payment hash: {payment_hash}");
+            let amount = response.amount_sats;
+            println!("Amount: {amount} sats");
+            let federation = &response.federation_id;
+            println!("Federation: {federation}");
         }
     }
 

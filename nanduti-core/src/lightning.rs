@@ -83,10 +83,9 @@ impl LightningOperation {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
+            let expiry_secs = expiry_duration.as_secs();
             anyhow::bail!(
-                "Invoice has expired (created at {}, expires after {} seconds)",
-                creation_secs,
-                expiry_duration.as_secs()
+                "Invoice has expired (created at {creation_secs}, expires after {expiry_secs} seconds)"
             );
         }
 
@@ -106,7 +105,7 @@ impl LightningOperation {
             for hop in route.0.iter() {
                 let hint = RouteHint {
                     pubkey: hex::encode(hop.src_node_id.serialize()),
-                    short_channel_id: format!("{}", hop.short_channel_id),
+                    short_channel_id: hop.short_channel_id.to_string(),
                     fee_base_msat: hop.fees.base_msat,
                     fee_proportional_millionths: hop.fees.proportional_millionths,
                     cltv_expiry_delta: hop.cltv_expiry_delta,
