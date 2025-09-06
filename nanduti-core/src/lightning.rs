@@ -53,6 +53,9 @@ impl LightningOperation {
             .payee_pub_key()
             .map(|pk| PublicKey(hex::encode(pk.serialize())));
 
+        // Extract creation timestamp
+        let created_at = Some(parsed.timestamp());
+
         Ok(Invoice {
             bolt11: Bolt11String(bolt11.to_string()),
             payment_hash,
@@ -60,30 +63,29 @@ impl LightningOperation {
             description,
             expiry,
             payee_pubkey,
+            created_at,
         })
     }
 
     /// Validate an invoice
-    pub fn validate_invoice(bolt11: &str) -> Result<()> {
-        // Parse the invoice to get actual timestamps
-        let parsed = Bolt11Invoice::from_str(bolt11)
-            .context("Failed to parse BOLT11 invoice for validation")?;
-
-        // Check if invoice is expired
-        let creation_time = parsed.timestamp();
-        let expiry_duration = parsed.expiry_time();
+    pub fn validate_invoice(invoice: &Invoice) -> Result<()> {
+        // Get creation time and expiry duration
+        let created_at = invoice
+            .created_at
+            .context("Invoice missing creation timestamp")?;
+        let expiry_secs = invoice.expiry.map(|e| e.as_secs()).unwrap_or(3600); // Default 3600 seconds
 
         let now = SystemTime::now();
 
         // Calculate when the invoice expires
-        let expiry_time = creation_time + expiry_duration;
+        let expiry_duration = std::time::Duration::from_secs(expiry_secs);
+        let expiry_time = created_at + expiry_duration;
 
         if now > expiry_time {
-            let creation_secs = creation_time
+            let creation_secs = created_at
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            let expiry_secs = expiry_duration.as_secs();
             anyhow::bail!(
                 "Invoice has expired (created at {creation_secs}, expires after {expiry_secs} seconds)"
             );

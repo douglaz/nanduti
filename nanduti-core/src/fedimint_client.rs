@@ -452,6 +452,7 @@ impl FedimintClientWrapper {
             description: Some(Description(description)),
             expiry: expiry.map(Expiry),
             payee_pubkey: None,
+            created_at: Some(invoice.timestamp()),
         })
     }
 

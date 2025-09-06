@@ -86,7 +86,7 @@ impl NwcHandler {
         let invoice = LightningOperation::parse_invoice(params.invoice.as_str())?;
 
         // Validate invoice
-        LightningOperation::validate_invoice(params.invoice.as_str())?;
+        LightningOperation::validate_invoice(&invoice)?;
 
         // Determine amount
         let amount = if let Some(override_amount) = params.amount {

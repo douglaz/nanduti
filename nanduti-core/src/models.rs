@@ -4,6 +4,7 @@ use anyhow::Result;
 use fedimint_core::Amount as FedimintAmount;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use std::time::SystemTime;
 use strum::{Display, EnumString};
 
 /// Amount wrapper around fedimint_core::Amount
@@ -97,6 +98,7 @@ pub struct Invoice {
     pub description: Option<Description>,
     pub expiry: Option<Expiry>,
     pub payee_pubkey: Option<PublicKey>,
+    pub created_at: Option<SystemTime>,
 }
 
 impl From<&lightning_invoice::Bolt11Invoice> for Invoice {
@@ -115,6 +117,7 @@ impl From<&lightning_invoice::Bolt11Invoice> for Invoice {
             },
             expiry: Some(Expiry(bolt11.expiry_time().as_secs())),
             payee_pubkey: bolt11.payee_pub_key().map(|k| PublicKey(k.to_string())),
+            created_at: Some(bolt11.timestamp()),
         }
     }
 }
