@@ -38,7 +38,8 @@ pub struct FederationInfo {
 #[derive(Debug, Serialize)]
 pub struct BalanceResponse {
     pub federation_id: FederationId,
-    pub balance_msats: Amount,
+    #[serde(rename = "balance_msats")]
+    pub balance: Amount,
 }
 
 #[derive(Debug, Serialize)]
@@ -137,7 +138,7 @@ pub async fn get_federation_balance(
 
     Ok(Json(BalanceResponse {
         federation_id,
-        balance_msats: balance,
+        balance,
     }))
 }
 
