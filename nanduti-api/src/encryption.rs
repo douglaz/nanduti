@@ -8,7 +8,6 @@ use nostr::prelude::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionMethod {
     Nip44,
-    Nip04, // Legacy, for backwards compatibility
 }
 
 /// Encrypt a message using the specified method
@@ -23,10 +22,6 @@ pub fn encrypt_message(
             nip44::encrypt(sender_secret, recipient_pubkey, content, nip44::Version::V2)
                 .context("Failed to encrypt with NIP-44")
         }
-        EncryptionMethod::Nip04 => {
-            nostr::nips::nip04::encrypt(sender_secret, recipient_pubkey, content)
-                .context("Failed to encrypt with NIP-04")
-        }
     }
 }
 
@@ -40,10 +35,6 @@ pub fn decrypt_message(
     match method {
         EncryptionMethod::Nip44 => nip44::decrypt(recipient_secret, sender_pubkey, encrypted)
             .context("Failed to decrypt with NIP-44"),
-        EncryptionMethod::Nip04 => {
-            nostr::nips::nip04::decrypt(recipient_secret, sender_pubkey, encrypted)
-                .context("Failed to decrypt with NIP-04")
-        }
     }
 }
 
@@ -60,8 +51,8 @@ pub fn parse_encryption_method(tags: &[Tag]) -> EncryptionMethod {
             }
         }
     }
-    // Default to NIP-04 for backwards compatibility
-    EncryptionMethod::Nip04
+    // Default to NIP-44 (modern encryption)
+    EncryptionMethod::Nip44
 }
 
 /// Encrypt using NIP-44 with Keys
@@ -89,33 +80,5 @@ pub fn decrypt_nip44(
         recipient_keys.secret_key(),
         sender_pubkey,
         EncryptionMethod::Nip44,
-    )
-}
-
-/// Encrypt using NIP-04 with Keys
-pub fn encrypt_nip04(
-    content: &str,
-    recipient_pubkey: &PublicKey,
-    sender_keys: &Keys,
-) -> Result<String> {
-    encrypt_message(
-        content,
-        sender_keys.secret_key(),
-        recipient_pubkey,
-        EncryptionMethod::Nip04,
-    )
-}
-
-/// Decrypt using NIP-04 with Keys
-pub fn decrypt_nip04(
-    encrypted: &str,
-    sender_pubkey: &PublicKey,
-    recipient_keys: &Keys,
-) -> Result<String> {
-    decrypt_message(
-        encrypted,
-        recipient_keys.secret_key(),
-        sender_pubkey,
-        EncryptionMethod::Nip04,
     )
 }

@@ -80,21 +80,6 @@ async fn test_encryption() -> Result<()> {
     
     assert_eq!(message, decrypted_nip44);
     
-    // Test NIP-04 encryption
-    let encrypted_nip04 = encryption::encrypt_nip04(
-        message,
-        &bob_keys.public_key(),
-        &alice_keys,
-    )?;
-    
-    let decrypted_nip04 = encryption::decrypt_nip04(
-        &encrypted_nip04,
-        &alice_keys.public_key(),
-        &bob_keys,
-    )?;
-    
-    assert_eq!(message, decrypted_nip04);
-    
     println!("✅ Encryption tests passed!");
     
     Ok(())

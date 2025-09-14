@@ -129,7 +129,7 @@ impl NostrClient {
 
         let content = serde_json::to_string(&notification)?;
 
-        // Encrypt with both NIP-44 and NIP-04 for compatibility
+        // Encrypt with NIP-44 (modern encryption)
         // Send NIP-44 version (kind 23197)
         let encrypted_nip44 = encryption::encrypt_nip44(&content, recipient_pubkey, &self.keys)?;
         let event_builder_nip44 = EventBuilder::new(Kind::from(23197), encrypted_nip44)
@@ -137,14 +137,6 @@ impl NostrClient {
         let event_nip44 = self.client.sign_event_builder(event_builder_nip44).await?;
 
         self.client.send_event(&event_nip44).await?;
-
-        // Send NIP-04 version for legacy clients (kind 23196)
-        let encrypted_nip04 = encryption::encrypt_nip04(&content, recipient_pubkey, &self.keys)?;
-        let event_builder_nip04 = EventBuilder::new(Kind::from(23196), encrypted_nip04)
-            .tag(Tag::public_key(*recipient_pubkey));
-        let event_nip04 = self.client.sign_event_builder(event_builder_nip04).await?;
-
-        self.client.send_event(&event_nip04).await?;
 
         debug!(
             "Sent {notification_type} notification to {pubkey}",
@@ -282,9 +274,6 @@ impl NostrClient {
             encryption::EncryptionMethod::Nip44 => {
                 encryption::decrypt_nip44(&event.content, &event.pubkey, &self.keys)?
             }
-            encryption::EncryptionMethod::Nip04 => {
-                encryption::decrypt_nip04(&event.content, &event.pubkey, &self.keys)?
-            }
         };
 
         // Parse the request
@@ -304,9 +293,6 @@ impl NostrClient {
         let encrypted_response = match encryption_method {
             encryption::EncryptionMethod::Nip44 => {
                 encryption::encrypt_nip44(&response_content, &event.pubkey, &self.keys)?
-            }
-            encryption::EncryptionMethod::Nip04 => {
-                encryption::encrypt_nip04(&response_content, &event.pubkey, &self.keys)?
             }
         };
 
