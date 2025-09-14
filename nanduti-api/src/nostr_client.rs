@@ -265,16 +265,9 @@ impl NostrClient {
         let pubkey = &event.pubkey;
         debug!("Processing event from {pubkey}");
 
-        // Determine encryption method from tags
-        let tags_vec: Vec<Tag> = event.tags.into_iter().collect();
-        let encryption_method = encryption::parse_encryption_method(&tags_vec);
-
-        // Decrypt the request
-        let decrypted_content = match encryption_method {
-            encryption::EncryptionMethod::Nip44 => {
-                encryption::decrypt_nip44(&event.content, &event.pubkey, &self.keys)?
-            }
-        };
+        // Decrypt the request (NIP-44)
+        let decrypted_content =
+            encryption::decrypt_nip44(&event.content, &event.pubkey, &self.keys)?;
 
         // Parse the request
         let request: NwcRequest =
@@ -289,12 +282,9 @@ impl NostrClient {
         // Serialize response
         let response_content = serde_json::to_string(&response)?;
 
-        // Encrypt the response using the same method
-        let encrypted_response = match encryption_method {
-            encryption::EncryptionMethod::Nip44 => {
-                encryption::encrypt_nip44(&response_content, &event.pubkey, &self.keys)?
-            }
-        };
+        // Encrypt the response (NIP-44)
+        let encrypted_response =
+            encryption::encrypt_nip44(&response_content, &event.pubkey, &self.keys)?;
 
         // Send response
         self.send_nwc_response(event.id.to_hex(), event.pubkey.to_hex(), encrypted_response)

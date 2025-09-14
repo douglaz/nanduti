@@ -1,59 +1,8 @@
-//! NIP-44 and NIP-04 encryption for NWC messages
+//! NIP-44 encryption for NWC messages
 
 use anyhow::{Context, Result};
 use nostr::nips::nip44;
 use nostr::prelude::*;
-
-/// Encryption methods supported by NWC
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EncryptionMethod {
-    Nip44,
-}
-
-/// Encrypt a message using the specified method
-pub fn encrypt_message(
-    content: &str,
-    sender_secret: &SecretKey,
-    recipient_pubkey: &PublicKey,
-    method: EncryptionMethod,
-) -> Result<String> {
-    match method {
-        EncryptionMethod::Nip44 => {
-            nip44::encrypt(sender_secret, recipient_pubkey, content, nip44::Version::V2)
-                .context("Failed to encrypt with NIP-44")
-        }
-    }
-}
-
-/// Decrypt a message using the specified method
-pub fn decrypt_message(
-    encrypted: &str,
-    recipient_secret: &SecretKey,
-    sender_pubkey: &PublicKey,
-    method: EncryptionMethod,
-) -> Result<String> {
-    match method {
-        EncryptionMethod::Nip44 => nip44::decrypt(recipient_secret, sender_pubkey, encrypted)
-            .context("Failed to decrypt with NIP-44"),
-    }
-}
-
-/// Parse encryption method from event tags
-pub fn parse_encryption_method(tags: &[Tag]) -> EncryptionMethod {
-    // Look for encryption tag
-    for tag in tags {
-        if tag.kind() == TagKind::Custom("encryption".into()) {
-            // Get the tag content (first value after the tag name)
-            if let Some(method) = tag.content() {
-                if method.contains("nip44") {
-                    return EncryptionMethod::Nip44;
-                }
-            }
-        }
-    }
-    // Default to NIP-44 (modern encryption)
-    EncryptionMethod::Nip44
-}
 
 /// Encrypt using NIP-44 with Keys
 pub fn encrypt_nip44(
@@ -61,12 +10,13 @@ pub fn encrypt_nip44(
     recipient_pubkey: &PublicKey,
     sender_keys: &Keys,
 ) -> Result<String> {
-    encrypt_message(
-        content,
+    nip44::encrypt(
         sender_keys.secret_key(),
         recipient_pubkey,
-        EncryptionMethod::Nip44,
+        content,
+        nip44::Version::V2,
     )
+    .context("Failed to encrypt with NIP-44")
 }
 
 /// Decrypt using NIP-44 with Keys
@@ -75,10 +25,6 @@ pub fn decrypt_nip44(
     sender_pubkey: &PublicKey,
     recipient_keys: &Keys,
 ) -> Result<String> {
-    decrypt_message(
-        encrypted,
-        recipient_keys.secret_key(),
-        sender_pubkey,
-        EncryptionMethod::Nip44,
-    )
+    nip44::decrypt(recipient_keys.secret_key(), sender_pubkey, encrypted)
+        .context("Failed to decrypt with NIP-44")
 }
