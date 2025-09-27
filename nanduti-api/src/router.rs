@@ -117,11 +117,12 @@ impl FederationRouter {
     async fn select_best_route(
         &self,
         federations: Vec<Federation>,
-        _amount: Amount,
+        amount: Amount,
     ) -> Result<Federation> {
-        // Select based on success rate metrics
+        // Filter federations that can handle the amount and select based on success rate metrics
         federations
             .into_iter()
+            .filter(|f| f.balance >= amount)
             .max_by(|a, b| {
                 let a_score = a.metrics.success_rate * a.metrics.uptime_percent;
                 let b_score = b.metrics.success_rate * b.metrics.uptime_percent;
@@ -129,7 +130,7 @@ impl FederationRouter {
                     .partial_cmp(&b_score)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .ok_or_else(|| anyhow!("No federation available"))
+            .ok_or_else(|| anyhow!("No federation available with sufficient balance for {amount}"))
     }
 
     /// Select federation using round-robin
