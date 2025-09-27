@@ -31,8 +31,17 @@ impl ApiClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(anyhow!("Server health check failed"));
+        let status = response.status();
+        if !status.is_success() {
+            let error = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "No response body".to_string());
+            return Err(anyhow!(
+                "Server health check failed ({}): {}",
+                status,
+                error
+            ));
         }
 
         Ok(())
@@ -101,12 +110,17 @@ impl ApiClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
             let error = response
                 .text()
                 .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow!("Failed to remove federation: {error}"));
+                .unwrap_or_else(|_| "No response body".to_string());
+            return Err(anyhow!(
+                "Failed to remove federation ({}): {}",
+                status,
+                error
+            ));
         }
 
         Ok(())
@@ -255,7 +269,7 @@ async fn handle_response<T: for<'de> Deserialize<'de>>(response: reqwest::Respon
         let error_text = response
             .text()
             .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
+            .unwrap_or_else(|e| format!("Failed to read response body: {}", e));
         Err(anyhow!("API error ({status}): {error_text}"))
     }
 }
