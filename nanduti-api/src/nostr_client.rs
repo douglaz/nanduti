@@ -1,6 +1,7 @@
 //! Nostr relay connection and message handling
 
 use anyhow::{Context, Result};
+use nanduti_core::models::{Amount, Bolt11String, PaymentHash, Preimage};
 use nostr_sdk::prelude::*;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -149,23 +150,21 @@ impl NostrClient {
     pub async fn notify_payment_received(
         &self,
         recipient_pubkey: &PublicKey,
-        invoice: &str,
-        payment_hash: &str,
-        amount_msats: u64,
-        preimage: &str,
+        invoice: &Bolt11String,
+        payment_hash: &PaymentHash,
+        amount: Amount,
+        preimage: &Preimage,
     ) -> Result<()> {
-        use nanduti_core::models::{
-            Amount, Bolt11String, PaymentHash, Preimage, Timestamp, TransactionState,
-        };
+        use nanduti_core::models::{Timestamp, TransactionState};
         use nanduti_core::nwc_protocol::{NotificationData, PaymentReceivedNotification};
 
         let notification_data = NotificationData::PaymentReceived(PaymentReceivedNotification {
             payment_type: "incoming".to_string(),
             state: TransactionState::Settled,
-            invoice: Bolt11String::new(invoice.to_string()),
-            payment_hash: PaymentHash::new(payment_hash.to_string()),
-            preimage: Preimage::new(preimage.to_string()),
-            amount: Amount::from_msats(amount_msats),
+            invoice: invoice.clone(),
+            payment_hash: payment_hash.clone(),
+            preimage: preimage.clone(),
+            amount,
             settled_at: Timestamp::now(),
         });
 
@@ -177,25 +176,23 @@ impl NostrClient {
     pub async fn notify_payment_sent(
         &self,
         recipient_pubkey: &PublicKey,
-        invoice: &str,
-        payment_hash: &str,
-        amount_msats: u64,
-        fees_paid_msats: Option<u64>,
-        preimage: &str,
+        invoice: &Bolt11String,
+        payment_hash: &PaymentHash,
+        amount: Amount,
+        fees_paid: Option<Amount>,
+        preimage: &Preimage,
     ) -> Result<()> {
-        use nanduti_core::models::{
-            Amount, Bolt11String, PaymentHash, Preimage, Timestamp, TransactionState,
-        };
+        use nanduti_core::models::{Timestamp, TransactionState};
         use nanduti_core::nwc_protocol::{NotificationData, PaymentSentNotification};
 
         let notification_data = NotificationData::PaymentSent(PaymentSentNotification {
             payment_type: "outgoing".to_string(),
             state: TransactionState::Settled,
-            invoice: Bolt11String::new(invoice.to_string()),
-            payment_hash: PaymentHash::new(payment_hash.to_string()),
-            preimage: Preimage::new(preimage.to_string()),
-            amount: Amount::from_msats(amount_msats),
-            fees_paid: fees_paid_msats.map(Amount::from_msats),
+            invoice: invoice.clone(),
+            payment_hash: payment_hash.clone(),
+            preimage: preimage.clone(),
+            amount,
+            fees_paid,
             settled_at: Timestamp::now(),
         });
 
