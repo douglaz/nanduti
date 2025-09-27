@@ -37,11 +37,7 @@ impl ApiClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "No response body".to_string());
-            return Err(anyhow!(
-                "Server health check failed ({}): {}",
-                status,
-                error
-            ));
+            return Err(anyhow!("Server health check failed ({status}): {error}"));
         }
 
         Ok(())
@@ -89,8 +85,7 @@ impl ApiClient {
             .client
             .get(format!(
                 "{base_url}/api/v1/federations/{id}",
-                base_url = self.base_url,
-                id = id
+                base_url = self.base_url
             ))
             .send()
             .await?;
@@ -104,8 +99,7 @@ impl ApiClient {
             .client
             .delete(format!(
                 "{base_url}/api/v1/federations/{id}",
-                base_url = self.base_url,
-                id = id
+                base_url = self.base_url
             ))
             .send()
             .await?;
@@ -116,11 +110,7 @@ impl ApiClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "No response body".to_string());
-            return Err(anyhow!(
-                "Failed to remove federation ({}): {}",
-                status,
-                error
-            ));
+            return Err(anyhow!("Failed to remove federation ({status}): {error}"));
         }
 
         Ok(())
@@ -133,8 +123,7 @@ impl ApiClient {
             .client
             .get(format!(
                 "{base_url}/api/v1/federations/{id}/balance",
-                base_url = self.base_url,
-                id = id
+                base_url = self.base_url
             ))
             .send()
             .await?;
@@ -148,8 +137,7 @@ impl ApiClient {
             .client
             .get(format!(
                 "{base_url}/api/v1/federations/{id}/gateways",
-                base_url = self.base_url,
-                id = id
+                base_url = self.base_url
             ))
             .send()
             .await?;
@@ -269,7 +257,7 @@ async fn handle_response<T: for<'de> Deserialize<'de>>(response: reqwest::Respon
         let error_text = response
             .text()
             .await
-            .unwrap_or_else(|e| format!("Failed to read response body: {}", e));
+            .unwrap_or_else(|e| format!("Failed to read response body: {e}"));
         Err(anyhow!("API error ({status}): {error_text}"))
     }
 }
