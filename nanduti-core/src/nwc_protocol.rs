@@ -6,8 +6,8 @@ use strum::{Display, EnumString};
 
 use crate::lightning::PaymentResult;
 use crate::models::{
-    Amount, Bolt11String, Description, Expiry, PaymentHash, Preimage, PublicKey, Timestamp,
-    Transaction, TransactionState, TransactionType,
+    Amount, Bolt11String, Description, Expiry, PaymentHash, PaymentType, Preimage, PublicKey,
+    Timestamp, Transaction, TransactionState, TransactionType,
 };
 
 /// NWC request methods
@@ -337,7 +337,7 @@ pub enum NotificationData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymentReceivedNotification {
     #[serde(rename = "type")]
-    pub payment_type: String,
+    pub payment_type: PaymentType,
     pub state: TransactionState,
     pub invoice: Bolt11String,
     pub payment_hash: PaymentHash,
@@ -349,7 +349,7 @@ pub struct PaymentReceivedNotification {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymentSentNotification {
     #[serde(rename = "type")]
-    pub payment_type: String,
+    pub payment_type: PaymentType,
     pub state: TransactionState,
     pub invoice: Bolt11String,
     pub payment_hash: PaymentHash,

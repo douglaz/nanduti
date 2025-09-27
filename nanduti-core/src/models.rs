@@ -168,6 +168,14 @@ pub enum TransactionState {
     Expired,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum PaymentType {
+    Incoming,
+    Outgoing,
+}
+
 /// Federation metrics for routing decisions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FederationMetrics {

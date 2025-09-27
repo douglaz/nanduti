@@ -1,7 +1,7 @@
 //! Nostr relay connection and message handling
 
 use anyhow::{Context, Result};
-use nanduti_core::models::{Amount, Bolt11String, PaymentHash, Preimage};
+use nanduti_core::models::{Amount, Bolt11String, PaymentHash, PaymentType, Preimage};
 use nostr_sdk::prelude::*;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -159,7 +159,7 @@ impl NostrClient {
         use nanduti_core::nwc_protocol::{NotificationData, PaymentReceivedNotification};
 
         let notification_data = NotificationData::PaymentReceived(PaymentReceivedNotification {
-            payment_type: "incoming".to_string(),
+            payment_type: PaymentType::Incoming,
             state: TransactionState::Settled,
             invoice: invoice.clone(),
             payment_hash: payment_hash.clone(),
@@ -186,7 +186,7 @@ impl NostrClient {
         use nanduti_core::nwc_protocol::{NotificationData, PaymentSentNotification};
 
         let notification_data = NotificationData::PaymentSent(PaymentSentNotification {
-            payment_type: "outgoing".to_string(),
+            payment_type: PaymentType::Outgoing,
             state: TransactionState::Settled,
             invoice: invoice.clone(),
             payment_hash: payment_hash.clone(),
