@@ -8,30 +8,18 @@ use nanduti_core::{
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use strum::{Display, EnumString};
 use tracing::{debug, info};
 
 /// Strategy for selecting federations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]
 #[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
 pub enum RoutingStrategy {
     LowestFee,
     BestRoute,
     RoundRobin,
     BalanceWeighted,
-}
-
-impl std::str::FromStr for RoutingStrategy {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "lowest-fee" => Ok(Self::LowestFee),
-            "best-route" => Ok(Self::BestRoute),
-            "round-robin" => Ok(Self::RoundRobin),
-            "balance-weighted" => Ok(Self::BalanceWeighted),
-            _ => bail!("Invalid routing strategy: {s}"),
-        }
-    }
 }
 
 /// Routes payments to optimal federations
