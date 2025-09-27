@@ -18,6 +18,7 @@ use serde_json::Value;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
+use uuid;
 
 use crate::nostr_client::NostrClient;
 use crate::router::FederationRouter;
@@ -443,6 +444,3 @@ impl NwcHandler {
         }
     }
 }
-
-// Add uuid dependency for transaction IDs
-use uuid;
