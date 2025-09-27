@@ -26,6 +26,7 @@ use std::str::FromStr;
 pub struct McpServerConfig {
     pub api_host: String,
     pub api_port: u16,
+    #[allow(dead_code)]
     pub api_key: Option<String>,
 }
 
@@ -89,6 +90,7 @@ pub struct ListTransactionsRequest {
     #[schemars(description = "Maximum number of transactions to return")]
     pub limit: Option<u32>,
     #[schemars(description = "Offset for pagination")]
+    #[allow(dead_code)]
     pub offset: Option<u32>,
 }
 
@@ -227,10 +229,8 @@ impl ServerHandler for NandutiMcpServer {
         fn schema_to_arc_map<T: JsonSchema>(
         ) -> std::sync::Arc<serde_json::Map<String, serde_json::Value>> {
             let schema = schemars::schema_for!(T);
-            if let Ok(value) = serde_json::to_value(schema) {
-                if let serde_json::Value::Object(map) = value {
-                    return std::sync::Arc::new(map);
-                }
+            if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(schema) {
+                return std::sync::Arc::new(map);
             }
             std::sync::Arc::new(serde_json::Map::new())
         }
