@@ -84,16 +84,21 @@ impl NostrClient {
 
     /// Send info event with default capabilities
     pub async fn publish_info_event(&self) -> Result<()> {
+        use nanduti_core::nwc_protocol::{NwcMethod, NwcNotificationType};
+
         let capabilities = [
-            "pay_invoice".to_string(),
-            "make_invoice".to_string(),
-            "get_balance".to_string(),
-            "list_transactions".to_string(),
-            "get_info".to_string(),
-            "pay_keysend".to_string(),
+            NwcMethod::PayInvoice.to_string(),
+            NwcMethod::MakeInvoice.to_string(),
+            NwcMethod::GetBalance.to_string(),
+            NwcMethod::ListTransactions.to_string(),
+            NwcMethod::GetInfo.to_string(),
+            NwcMethod::PayKeysend.to_string(),
         ];
 
-        let notifications = vec!["payment_received".to_string(), "payment_sent".to_string()];
+        let notifications = vec![
+            NwcNotificationType::PaymentReceived.to_string(),
+            NwcNotificationType::PaymentSent.to_string(),
+        ];
 
         let content = capabilities.join(" ");
 
@@ -117,14 +122,14 @@ impl NostrClient {
     pub async fn send_notification(
         &self,
         recipient_pubkey: &PublicKey,
-        notification_type: &str,
+        notification_type: nanduti_core::nwc_protocol::NwcNotificationType,
         notification_data: nanduti_core::nwc_protocol::NotificationData,
     ) -> Result<()> {
         use crate::encryption;
 
         // Create notification payload
         let notification = nanduti_core::nwc_protocol::NostrNotification {
-            notification_type: notification_type.to_string(),
+            notification_type,
             notification: notification_data,
         };
 
@@ -140,8 +145,9 @@ impl NostrClient {
         self.client.send_event(&event_nip44).await?;
 
         debug!(
-            "Sent {notification_type} notification to {pubkey}",
-            pubkey = recipient_pubkey.to_hex()
+            "Sent {} notification to {}",
+            notification_type,
+            recipient_pubkey.to_hex()
         );
         Ok(())
     }
@@ -156,7 +162,9 @@ impl NostrClient {
         preimage: &Preimage,
     ) -> Result<()> {
         use nanduti_core::models::{Timestamp, TransactionState};
-        use nanduti_core::nwc_protocol::{NotificationData, PaymentReceivedNotification};
+        use nanduti_core::nwc_protocol::{
+            NotificationData, NwcNotificationType, PaymentReceivedNotification,
+        };
 
         let notification_data = NotificationData::PaymentReceived(PaymentReceivedNotification {
             payment_type: PaymentType::Incoming,
@@ -168,8 +176,12 @@ impl NostrClient {
             settled_at: Timestamp::now(),
         });
 
-        self.send_notification(recipient_pubkey, "payment_received", notification_data)
-            .await
+        self.send_notification(
+            recipient_pubkey,
+            NwcNotificationType::PaymentReceived,
+            notification_data,
+        )
+        .await
     }
 
     /// Send payment sent notification
@@ -183,7 +195,9 @@ impl NostrClient {
         preimage: &Preimage,
     ) -> Result<()> {
         use nanduti_core::models::{Timestamp, TransactionState};
-        use nanduti_core::nwc_protocol::{NotificationData, PaymentSentNotification};
+        use nanduti_core::nwc_protocol::{
+            NotificationData, NwcNotificationType, PaymentSentNotification,
+        };
 
         let notification_data = NotificationData::PaymentSent(PaymentSentNotification {
             payment_type: PaymentType::Outgoing,
@@ -196,8 +210,12 @@ impl NostrClient {
             settled_at: Timestamp::now(),
         });
 
-        self.send_notification(recipient_pubkey, "payment_sent", notification_data)
-            .await
+        self.send_notification(
+            recipient_pubkey,
+            NwcNotificationType::PaymentSent,
+            notification_data,
+        )
+        .await
     }
 
     /// Handle incoming NWC events

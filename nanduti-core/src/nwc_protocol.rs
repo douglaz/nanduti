@@ -26,6 +26,15 @@ pub enum NwcMethod {
     GetInfo,
 }
 
+/// NWC notification types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum NwcNotificationType {
+    PaymentReceived,
+    PaymentSent,
+}
+
 /// NWC request structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NwcRequest {
@@ -323,7 +332,7 @@ pub struct TlvRecord {
 // Notification types for Nostr client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NostrNotification {
-    pub notification_type: String,
+    pub notification_type: NwcNotificationType,
     pub notification: NotificationData,
 }
 

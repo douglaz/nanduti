@@ -9,8 +9,8 @@ use nanduti_core::{
         TransactionType,
     },
     nwc_protocol::{
-        ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcRequest,
-        NwcResponse, PayInvoiceParams, PayKeysendParams,
+        ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcNotificationType,
+        NwcRequest, NwcResponse, PayInvoiceParams, PayKeysendParams,
     },
     storage::Storage,
 };
@@ -274,16 +274,19 @@ impl NwcHandler {
         };
 
         let methods = vec![
-            "pay_invoice".to_string(),
-            "make_invoice".to_string(),
-            "get_balance".to_string(),
-            "list_transactions".to_string(),
-            "get_info".to_string(),
-            "pay_keysend".to_string(),
-            "lookup_invoice".to_string(),
+            NwcMethod::PayInvoice.to_string(),
+            NwcMethod::MakeInvoice.to_string(),
+            NwcMethod::GetBalance.to_string(),
+            NwcMethod::ListTransactions.to_string(),
+            NwcMethod::GetInfo.to_string(),
+            NwcMethod::PayKeysend.to_string(),
+            NwcMethod::LookupInvoice.to_string(),
         ];
 
-        let notifications = vec!["payment_received".to_string(), "payment_sent".to_string()];
+        let notifications = vec![
+            NwcNotificationType::PaymentReceived.to_string(),
+            NwcNotificationType::PaymentSent.to_string(),
+        ];
 
         // Use the actual wallet's Nostr public key
         let pubkey = self.nostr_client.public_key();
