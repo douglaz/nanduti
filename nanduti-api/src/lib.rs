@@ -7,9 +7,6 @@ pub mod server;
 pub mod state;
 pub mod types;
 
-#[cfg(feature = "mcp")]
-pub mod mcp_server;
-
 pub use nostr_client::NostrClient;
 pub use nwc_handler::NwcHandler;
 pub use router::{FederationRouter, RoutingStrategy};

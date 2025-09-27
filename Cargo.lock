@@ -3959,8 +3959,6 @@ dependencies = [
  "nostr",
  "nostr-sdk",
  "rand 0.8.5",
- "rmcp",
- "schemars",
  "serde",
  "serde_json",
  "tokio",

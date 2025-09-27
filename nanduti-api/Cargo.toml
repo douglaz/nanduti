@@ -40,14 +40,6 @@ rand = { workspace = true }
 # Lightning
 lightning-invoice = { workspace = true }
 
-# MCP (optional)
-rmcp = { workspace = true, optional = true }
-schemars = { workspace = true, optional = true }
-
-[features]
-default = []
-mcp = ["rmcp", "schemars"]
-
 [dev-dependencies]
 # Testing
 tower = { version = "0.5", features = ["util"] }

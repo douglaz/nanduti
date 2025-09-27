@@ -44,4 +44,4 @@ schemars = { workspace = true, optional = true }
 
 [features]
 default = []
-mcp = ["rmcp", "schemars", "nanduti-api/mcp"]
+mcp = ["rmcp", "schemars"]
