@@ -61,14 +61,14 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
 }
 
 /// Publish NIP-47 info event
+/// Announces the wallet's capabilities and supported NWC methods to the Nostr network
 async fn publish_info_event(client: &NostrClient) -> Result<()> {
-    // This will be implemented in the nostr_client module
     client.publish_info_event().await
 }
 
 /// Handle incoming Nostr events
+/// Starts the Nostr event loop that listens for NWC requests and processes them
 async fn handle_nostr_events(client: Arc<NostrClient>, handler: Arc<NwcHandler>) -> Result<()> {
-    // This will be implemented when we complete the Nostr event loop
     client.handle_nwc_events(handler).await
 }
 
