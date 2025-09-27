@@ -48,8 +48,8 @@ bitcoin = "0.32"
 sha2 = "0.10"
 
 # MCP (optional)
-rmcp = "0.5"
-schemars = "0.8"
+rmcp = { version = "0.6", features = ["server", "transport-io"] }
+schemars = "1.0"
 
 # Utils
 uuid = { version = "1", features = ["v4", "serde"] }

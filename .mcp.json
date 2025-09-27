@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "nanduti": {
+      "command": "nanduti",
+      "args": ["mcp-server"],
+      "env": {
+        "RUST_LOG": "info",
+        "API_HOST": "localhost",
+        "API_PORT": "8080"
+      }
+    }
+  }
+}
