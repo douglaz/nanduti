@@ -610,12 +610,18 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
                     .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
                     .unwrap_or_else(|| "Unknown".to_string());
 
+                let fed_id_display: String = tx.federation_id.to_string();
+                let truncated = if fed_id_display.len() > 15 {
+                    &fed_id_display[..15]
+                } else {
+                    &fed_id_display
+                };
                 println!(
                     "{:<10} {:<20} {:<12} {:<15} {:<10}",
                     tx.transaction_type,
                     created,
                     tx.amount.as_sats(),
-                    &tx.federation_id.as_str()[..15.min(tx.federation_id.as_str().len())],
+                    truncated,
                     tx.state
                 );
             }

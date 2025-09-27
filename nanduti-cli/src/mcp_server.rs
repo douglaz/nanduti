@@ -523,7 +523,7 @@ impl NandutiMcpServer {
                     for fed in federations {
                         total_msats += fed.balance.as_msats();
                         balances.push(serde_json::json!({
-                            "federation_id": fed.id.as_str(),
+                            "federation_id": &fed.id,
                             "balance_msats": fed.balance.as_msats()
                         }));
                     }
