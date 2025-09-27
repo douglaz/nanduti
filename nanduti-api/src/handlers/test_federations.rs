@@ -24,22 +24,23 @@ mod tests {
         );
 
         // We'll create minimal state - real implementation would need full mocks
+        let nostr_client = Arc::new(crate::NostrClient::new(vec![], None).await.unwrap());
+        let router = Arc::new(crate::FederationRouter::new(
+            Arc::clone(&federation_manager),
+            crate::RoutingStrategy::RoundRobin,
+        ));
+
         Arc::new(AppState {
             federation_manager: Arc::clone(&federation_manager),
             storage,
             nwc_handler: Arc::new(crate::NwcHandler::new(
                 Arc::clone(&federation_manager),
-                Arc::new(crate::FederationRouter::new(
-                    Arc::clone(&federation_manager),
-                    crate::RoutingStrategy::RoundRobin,
-                )),
+                Arc::clone(&router),
                 None,
+                Arc::clone(&nostr_client),
             )),
-            nostr_client: Arc::new(crate::NostrClient::new(vec![], None).await.unwrap()),
-            router: Arc::new(crate::FederationRouter::new(
-                Arc::clone(&federation_manager),
-                crate::RoutingStrategy::RoundRobin,
-            )),
+            nostr_client,
+            router,
         })
     }
 

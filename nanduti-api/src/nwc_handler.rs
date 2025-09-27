@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
+use crate::nostr_client::NostrClient;
 use crate::router::FederationRouter;
 
 /// Handles NWC protocol requests
@@ -26,6 +27,7 @@ pub struct NwcHandler {
     federation_manager: Arc<FederationManager>,
     router: Arc<FederationRouter>,
     storage: Option<Arc<Storage>>,
+    nostr_client: Arc<NostrClient>,
 }
 
 impl NwcHandler {
@@ -34,11 +36,13 @@ impl NwcHandler {
         federation_manager: Arc<FederationManager>,
         router: Arc<FederationRouter>,
         storage: Option<Arc<Storage>>,
+        nostr_client: Arc<NostrClient>,
     ) -> Self {
         Self {
             federation_manager,
             router,
             storage,
+            nostr_client,
         }
     }
 
@@ -281,9 +285,8 @@ impl NwcHandler {
 
         let notifications = vec!["payment_received".to_string(), "payment_sent".to_string()];
 
-        // Generate a deterministic pubkey for this instance
-        let pubkey =
-            "02fedimint0000000000000000000000000000000000000000000000000000000".to_string();
+        // Use the actual wallet's Nostr public key
+        let pubkey = self.nostr_client.public_key();
 
         Ok(NwcResponse::get_info(
             pubkey,

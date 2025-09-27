@@ -46,16 +46,17 @@ impl AppState {
             routing_strategy,
         ));
 
+        // Create Nostr client for wallet service
+        let wallet_keys = nanduti_core::keys::NwcKeys::generate()?;
+        let nostr_client = Arc::new(NostrClient::new(relays, Some(wallet_keys.secret_key)).await?);
+
         // Create NWC handler
         let nwc_handler = Arc::new(NwcHandler::new(
             federation_manager.clone(),
             router.clone(),
             Some(storage.clone()),
+            nostr_client.clone(),
         ));
-
-        // Create Nostr client for wallet service
-        let wallet_keys = nanduti_core::keys::NwcKeys::generate()?;
-        let nostr_client = Arc::new(NostrClient::new(relays, Some(wallet_keys.secret_key)).await?);
 
         Ok(Self {
             federation_manager,
