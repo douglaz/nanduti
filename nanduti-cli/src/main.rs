@@ -38,6 +38,10 @@ enum Commands {
     #[command(name = "serve")]
     Serve(ServeArgs),
 
+    /// Check API server health status
+    #[command(name = "health")]
+    Health,
+
     // Federation management (fm-*)
     /// Add a federation from invite code
     #[command(name = "fm-add")]
@@ -46,6 +50,10 @@ enum Commands {
     /// Remove a federation
     #[command(name = "fm-remove")]
     FmRemove(RemoveFederationArgs),
+
+    /// Show detailed information about a federation
+    #[command(name = "fm-show")]
+    FmShow(ShowFederationArgs),
 
     /// List all federations
     #[command(name = "fm-list")]
@@ -180,7 +188,20 @@ struct ListFederationsArgs {
 }
 
 #[derive(Parser)]
+struct ShowFederationArgs {
+    /// Federation ID
+    federation_id: String,
+
+    /// Output format (json, table)
+    #[arg(long, default_value = "table")]
+    format: OutputFormat,
+}
+
+#[derive(Parser)]
 struct BalanceArgs {
+    /// Federation ID to get balance for (omit for total/all)
+    federation_id: Option<String>,
+
     /// Show detailed per-federation balances
     #[arg(long)]
     detailed: bool,
@@ -302,8 +323,10 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Serve(args) => serve(args).await,
+        Commands::Health => check_health(&cli.api_url).await,
         Commands::FmAdd(args) => add_federation(args, &cli.api_url).await,
         Commands::FmRemove(args) => remove_federation(args, &cli.api_url).await,
+        Commands::FmShow(args) => show_federation(args, &cli.api_url).await,
         Commands::FmList(args) => list_federations(args, &cli.api_url).await,
         Commands::FmBalance(args) => show_balance(args, &cli.api_url).await,
         Commands::FmGateways(args) => list_gateways(args, &cli.api_url).await,
@@ -314,6 +337,23 @@ async fn main() -> Result<()> {
         Commands::TxInvoice(args) => create_invoice(args, &cli.api_url).await,
         #[cfg(feature = "mcp")]
         Commands::McpServer => mcp_server::run_mcp_server().await,
+    }
+}
+
+async fn check_health(api_url: &str) -> Result<()> {
+    let client = api_client::ApiClient::new(api_url.to_string())?;
+    match client.health().await {
+        Ok(()) => {
+            println!("✅ API server is healthy");
+            println!("Server URL: {api_url}");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("❌ API server health check failed");
+            eprintln!("Server URL: {api_url}");
+            eprintln!("Error: {e}");
+            Err(e)
+        }
     }
 }
 
@@ -361,6 +401,30 @@ async fn remove_federation(args: RemoveFederationArgs, api_url: &str) -> Result<
     Ok(())
 }
 
+async fn show_federation(args: ShowFederationArgs, api_url: &str) -> Result<()> {
+    let client = api_client::ApiClient::new(api_url.to_string())?;
+    let federation = client
+        .get_federation(&FederationId::new(args.federation_id))
+        .await?;
+
+    match args.format {
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&federation)?;
+            println!("{json}");
+        }
+        OutputFormat::Table => {
+            println!("Federation Information:");
+            println!("{:-<50}", "");
+            println!("ID:          {}", federation.id);
+            println!("Name:        {}", federation.name);
+            println!("Status:      {}", federation.status);
+            println!("Balance:     {} sats", federation.balance.as_sats());
+        }
+    }
+
+    Ok(())
+}
+
 async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()> {
     let client = api_client::ApiClient::new(api_url.to_string())?;
     let federations = client.list_federations().await?;
@@ -395,6 +459,32 @@ async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()
 
 async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
     let client = api_client::ApiClient::new(api_url.to_string())?;
+
+    // Handle specific federation ID
+    if let Some(federation_id) = args.federation_id {
+        let balance = client
+            .get_federation_balance(&FederationId::new(federation_id.clone()))
+            .await?;
+
+        match args.format {
+            OutputFormat::Json => {
+                println!("{}", serde_json::to_string_pretty(&balance)?);
+            }
+            OutputFormat::Table => {
+                println!("Federation Balance:");
+                println!("{:-<40}", "");
+                println!("Federation ID: {federation_id}");
+                if let Some(balance_value) = balance.as_object().and_then(|o| o.get("balance_sats"))
+                {
+                    println!("Balance: {} sats", balance_value);
+                } else {
+                    println!("Balance: {balance}");
+                }
+            }
+        }
+        return Ok(());
+    }
+
     let federations = client.list_federations().await?;
 
     if args.detailed {

@@ -23,7 +23,6 @@ impl ApiClient {
     }
 
     /// Check server health
-    #[allow(dead_code)]
     pub async fn health(&self) -> Result<()> {
         let response = self
             .client
@@ -117,7 +116,7 @@ impl ApiClient {
     }
 
     /// Get federation balance
-    #[allow(dead_code)]
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     pub async fn get_federation_balance(&self, id: &FederationId) -> Result<Value> {
         let response = self
             .client
