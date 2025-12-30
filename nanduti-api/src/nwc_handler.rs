@@ -398,7 +398,7 @@ impl NwcHandler {
             if let Some(storage) = &self.storage {
                 storage
                     .get_transaction_by_payment_hash(&hash)
-                    .map_err(|e| anyhow::anyhow!("Failed to lookup transaction: {e}"))?
+                    .map_err(|error| anyhow::anyhow!("Failed to lookup transaction: {error}"))?
             } else {
                 None
             }
@@ -406,7 +406,7 @@ impl NwcHandler {
             if let Some(storage) = &self.storage {
                 storage
                     .get_transaction_by_invoice(&inv)
-                    .map_err(|e| anyhow::anyhow!("Failed to lookup transaction: {e}"))?
+                    .map_err(|error| anyhow::anyhow!("Failed to lookup transaction: {error}"))?
             } else {
                 None
             }

@@ -80,7 +80,7 @@ impl MnemonicStore {
         // Encrypt with authenticated encryption (AES-256-GCM)
         let ciphertext = cipher
             .encrypt(nonce, plaintext)
-            .map_err(|e| anyhow::anyhow!("Encryption failed: {error}", error = e))?;
+            .map_err(|error| anyhow::anyhow!("Encryption failed: {error}"))?;
 
         // Combine: salt (16 bytes) + nonce (12 bytes) + ciphertext
         let mut file_content = Vec::with_capacity(SALT_SIZE + NONCE_SIZE + ciphertext.len());
@@ -167,11 +167,8 @@ impl MnemonicStore {
             .context("Failed to create AES cipher for decryption")?;
 
         // Decrypt and verify authentication tag
-        let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|e| {
-            anyhow::anyhow!(
-                "Decryption failed (incorrect password or corrupted data): {error}",
-                error = e
-            )
+        let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|error| {
+            anyhow::anyhow!("Decryption failed (incorrect password or corrupted data): {error}")
         })?;
 
         // Convert back to string
@@ -215,20 +212,18 @@ impl MnemonicStore {
             .p_cost(4) // 4 parallel lanes
             .output_len(32) // 256-bit output for AES-256
             .build()
-            .map_err(|e| {
-                anyhow::anyhow!("Failed to build Argon2 parameters: {error}", error = e)
-            })?;
+            .map_err(|error| anyhow::anyhow!("Failed to build Argon2 parameters: {error}"))?;
 
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
 
         // Create salt string from bytes
         let salt_str = SaltString::encode_b64(salt)
-            .map_err(|e| anyhow::anyhow!("Failed to encode salt for Argon2: {error}", error = e))?;
+            .map_err(|error| anyhow::anyhow!("Failed to encode salt for Argon2: {error}"))?;
 
         // Hash password to derive key
         let password_hash = argon2
             .hash_password(password.as_bytes(), &salt_str)
-            .map_err(|e| anyhow::anyhow!("Argon2 key derivation failed: {error}", error = e))?;
+            .map_err(|error| anyhow::anyhow!("Argon2 key derivation failed: {error}"))?;
 
         // Extract the hash bytes (key material)
         let hash_bytes = password_hash

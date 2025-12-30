@@ -397,7 +397,8 @@ async fn remove_federation(args: RemoveFederationArgs, api_url: &str) -> Result<
     let client = api_client::ApiClient::new(api_url.to_string())?;
     let federation_id = FederationId::new(args.federation.clone());
     client.remove_federation(&federation_id).await?;
-    println!("Successfully removed federation: {}", args.federation);
+    let federation = &args.federation;
+    println!("Successfully removed federation: {federation}");
     Ok(())
 }
 
@@ -415,10 +416,14 @@ async fn show_federation(args: ShowFederationArgs, api_url: &str) -> Result<()> 
         OutputFormat::Table => {
             println!("Federation Information:");
             println!("{:-<50}", "");
-            println!("ID:          {}", federation.id);
-            println!("Name:        {}", federation.name);
-            println!("Status:      {}", federation.status);
-            println!("Balance:     {} sats", federation.balance.as_sats());
+            let id = &federation.id;
+            let name = &federation.name;
+            let status = &federation.status;
+            let balance_sats = federation.balance.as_sats();
+            println!("ID:          {id}");
+            println!("Name:        {name}");
+            println!("Status:      {status}");
+            println!("Balance:     {balance_sats} sats");
         }
     }
 
@@ -431,7 +436,8 @@ async fn list_federations(args: ListFederationsArgs, api_url: &str) -> Result<()
 
     match args.format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&federations)?);
+            let json = serde_json::to_string_pretty(&federations)?;
+            println!("{json}");
         }
         OutputFormat::Table => {
             println!("Federations:");
@@ -468,7 +474,8 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
 
         match args.format {
             OutputFormat::Json => {
-                println!("{}", serde_json::to_string_pretty(&balance)?);
+                let json = serde_json::to_string_pretty(&balance)?;
+                println!("{json}");
             }
             OutputFormat::Table => {
                 println!("Federation Balance:");
@@ -476,7 +483,7 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
                 println!("Federation ID: {federation_id}");
                 if let Some(balance_value) = balance.as_object().and_then(|o| o.get("balance_sats"))
                 {
-                    println!("Balance: {} sats", balance_value);
+                    println!("Balance: {balance_value} sats");
                 } else {
                     println!("Balance: {balance}");
                 }

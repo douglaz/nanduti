@@ -21,7 +21,11 @@ use tracing::info;
 
 /// Start the NWC API server
 pub async fn start_server(config: ServerConfig) -> Result<()> {
-    info!("Starting NWC API server on {}:{}", config.host, config.port);
+    info!(
+        "Starting NWC API server on {host}:{port}",
+        host = config.host,
+        port = config.port
+    );
 
     // Create application state with all components
     let app_state = Arc::new(
@@ -40,8 +44,8 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     let event_handler = app_state.nwc_handler.clone();
     let nostr_clone = app_state.nostr_client.clone();
     tokio::spawn(async move {
-        if let Err(e) = handle_nostr_events(nostr_clone, event_handler).await {
-            tracing::error!("Nostr event handler error: {e}");
+        if let Err(error) = handle_nostr_events(nostr_clone, event_handler).await {
+            tracing::error!("Nostr event handler error: {error}");
         }
     });
 
@@ -51,7 +55,10 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     let server = Server::new(http_router, addr);
 
     info!("NWC server started successfully");
-    info!("Wallet public key: {}", app_state.nostr_client.public_key());
+    info!(
+        "Wallet public key: {pubkey}",
+        pubkey = app_state.nostr_client.public_key()
+    );
     info!("Listening on: {addr}");
 
     // Run the HTTP server

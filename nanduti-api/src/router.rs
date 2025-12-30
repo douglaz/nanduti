@@ -51,7 +51,10 @@ impl FederationRouter {
             .collect();
 
         if available.is_empty() {
-            bail!("No federation available to pay {} sats", amount.as_sats());
+            bail!(
+                "No federation available to pay {sats} sats",
+                sats = amount.as_sats()
+            );
         }
 
         match self.strategy {
@@ -99,10 +102,10 @@ impl FederationRouter {
                         lowest_fee = fee;
                         best_federation = Some(federation);
                     }
-                    Err(e) => {
+                    Err(error) => {
                         debug!(
-                            "Failed to estimate fee for federation {}: {e}",
-                            federation.id
+                            "Failed to estimate fee for federation {id}: {error}",
+                            id = federation.id
                         );
                     }
                     _ => {}
@@ -142,7 +145,7 @@ impl FederationRouter {
         let index = self.round_robin_counter.fetch_add(1, Ordering::Relaxed);
         let selected = federations[index % federations.len()].clone();
 
-        info!("Round-robin selected federation: {}", selected.id);
+        info!("Round-robin selected federation: {id}", id = selected.id);
         Ok(selected)
     }
 
@@ -184,7 +187,10 @@ impl FederationRouter {
             .await;
 
         if federations.is_empty() {
-            bail!("No federation can pay {} msats", amount.as_msats());
+            bail!(
+                "No federation can pay {msats} msats",
+                msats = amount.as_msats()
+            );
         }
 
         // Sort by preference based on strategy
@@ -198,10 +204,10 @@ impl FederationRouter {
                             Ok(fee) => {
                                 federations_with_fees.push((federation, fee));
                             }
-                            Err(e) => {
+                            Err(error) => {
                                 debug!(
-                                    "Failed to estimate fee for federation {}: {e}",
-                                    federation.id
+                                    "Failed to estimate fee for federation {id}: {error}",
+                                    id = federation.id
                                 );
                                 // Include with max fee as fallback
                                 federations_with_fees
@@ -235,12 +241,18 @@ impl FederationRouter {
         // Try each federation until one succeeds
         let mut last_error = None;
         for federation in federations {
-            info!("Attempting payment via federation: {}", federation.id);
+            info!(
+                "Attempting payment via federation: {id}",
+                id = federation.id
+            );
             match payment_fn(federation.clone()) {
                 Ok(()) => return Ok(()),
-                Err(e) => {
-                    debug!("Payment failed via federation {}: {e}", federation.id);
-                    last_error = Some(e);
+                Err(error) => {
+                    debug!(
+                        "Payment failed via federation {id}: {error}",
+                        id = federation.id
+                    );
+                    last_error = Some(error);
                 }
             }
         }

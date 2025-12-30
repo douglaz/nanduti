@@ -460,7 +460,9 @@ impl NandutiMcpServer {
     async fn pay_invoice(&self, request: PayInvoiceRequest) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         let pay_request = api_client::PayInvoiceRequest {
@@ -472,14 +474,16 @@ impl NandutiMcpServer {
             Ok(response) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&response).unwrap_or_else(|e| e.to_string()),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 
     async fn create_invoice(&self, request: CreateInvoiceRequest) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         let create_request = api_client::CreateInvoiceRequest {
@@ -493,14 +497,16 @@ impl NandutiMcpServer {
             Ok(response) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&response).unwrap_or_else(|e| e.to_string()),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 
     async fn get_balance(&self, request: GetBalanceRequest) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         if let Some(federation_id) = request.federation_id {
@@ -511,7 +517,7 @@ impl NandutiMcpServer {
                 Ok(balance) => CallToolResult::success(vec![Content::text(
                     serde_json::to_string_pretty(&balance).unwrap_or_else(|e| e.to_string()),
                 )]),
-                Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+                Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
             }
         } else {
             // Get total balance across all federations
@@ -537,7 +543,7 @@ impl NandutiMcpServer {
                         serde_json::to_string_pretty(&response).unwrap_or_else(|e| e.to_string()),
                     )])
                 }
-                Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+                Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
             }
         }
     }
@@ -545,7 +551,9 @@ impl NandutiMcpServer {
     async fn list_transactions(&self, request: ListTransactionsRequest) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         // API client's list_transactions method signature is different
@@ -556,7 +564,7 @@ impl NandutiMcpServer {
             Ok(transactions) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&transactions).unwrap_or_else(|e| e.to_string()),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 }
@@ -566,31 +574,34 @@ impl NandutiMcpServer {
     async fn list_federations(&self) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         match client.list_federations().await {
             Ok(federations) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&federations).unwrap_or_else(|e| e.to_string()),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 
     async fn add_federation(&self, request: AddFederationRequest) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         // Parse the invite code string into InviteCode type
         let invite_code =
             match fedimint_core::invite_code::InviteCode::from_str(&request.invite_code) {
                 Ok(code) => code,
-                Err(e) => {
+                Err(error) => {
                     return CallToolResult::error(vec![Content::text(format!(
-                        "Invalid invite code: {}",
-                        e
+                        "Invalid invite code: {error}"
                     ))])
                 }
             };
@@ -599,14 +610,16 @@ impl NandutiMcpServer {
             Ok(federation) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&federation).unwrap_or_else(|e| e.to_string()),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 
     async fn get_federation_info(&self, request: GetFederationInfoRequest) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         match client
@@ -616,14 +629,16 @@ impl NandutiMcpServer {
             Ok(federation) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&federation).unwrap_or_else(|e| e.to_string()),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 
     async fn remove_federation(&self, request: RemoveFederationRequest) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         match client
@@ -633,7 +648,7 @@ impl NandutiMcpServer {
             Ok(_) => CallToolResult::success(vec![Content::text(
                 "Federation removed successfully".to_string(),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 }
@@ -643,21 +658,25 @@ impl NandutiMcpServer {
     async fn list_connections(&self) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         match client.list_nwc_connections().await {
             Ok(connections) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&connections).unwrap_or_else(|e| e.to_string()),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 
     async fn create_connection(&self, request: CreateConnectionRequest) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         let create_request = api_client::CreateConnectionRequest {
@@ -683,7 +702,7 @@ impl NandutiMcpServer {
             Ok(connection) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&connection).unwrap_or_else(|e| e.to_string()),
             )]),
-            Err(e) => CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => CallToolResult::error(vec![Content::text(format!("Error: {error}"))]),
         }
     }
 }
@@ -740,7 +759,9 @@ impl NandutiMcpServer {
     async fn get_info(&self) -> CallToolResult {
         let client = match self.get_client().await {
             Ok(c) => c,
-            Err(e) => return CallToolResult::error(vec![Content::text(format!("Error: {}", e))]),
+            Err(error) => {
+                return CallToolResult::error(vec![Content::text(format!("Error: {error}"))])
+            }
         };
 
         // Gather comprehensive info
