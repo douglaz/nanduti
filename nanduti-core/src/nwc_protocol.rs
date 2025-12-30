@@ -161,7 +161,10 @@ impl NwcResponse {
         Self {
             result_type: "pay_invoice".to_string(),
             error: None,
-            result: Some(serde_json::to_value(pay_result).unwrap()),
+            result: Some(
+                serde_json::to_value(pay_result)
+                    .expect("PayInvoiceResult should always serialize successfully"),
+            ),
         }
     }
 
@@ -173,7 +176,10 @@ impl NwcResponse {
         Self {
             result_type: "get_balance".to_string(),
             error: None,
-            result: Some(serde_json::to_value(balance_result).unwrap()),
+            result: Some(
+                serde_json::to_value(balance_result)
+                    .expect("GetBalanceResult should always serialize successfully"),
+            ),
         }
     }
 
@@ -192,7 +198,10 @@ impl NwcResponse {
         Self {
             result_type: "make_invoice".to_string(),
             error: None,
-            result: Some(serde_json::to_value(make_result).unwrap()),
+            result: Some(
+                serde_json::to_value(make_result)
+                    .expect("MakeInvoiceResult should always serialize successfully"),
+            ),
         }
     }
 
@@ -222,7 +231,10 @@ impl NwcResponse {
         Self {
             result_type: "list_transactions".to_string(),
             error: None,
-            result: Some(serde_json::to_value(list_result).unwrap()),
+            result: Some(
+                serde_json::to_value(list_result)
+                    .expect("ListTransactionsResult should always serialize successfully"),
+            ),
         }
     }
 
@@ -248,7 +260,10 @@ impl NwcResponse {
         Self {
             result_type: "get_info".to_string(),
             error: None,
-            result: Some(serde_json::to_value(info_result).unwrap()),
+            result: Some(
+                serde_json::to_value(info_result)
+                    .expect("GetInfoResult should always serialize successfully"),
+            ),
         }
     }
 

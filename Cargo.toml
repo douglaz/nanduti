@@ -46,6 +46,8 @@ hex = "0.4"
 lightning-invoice = "0.33.2"
 bitcoin = "0.32"
 sha2 = "0.10"
+aes-gcm = "0.10"
+argon2 = "0.5"
 
 # MCP (optional)
 rmcp = { version = "0.6", features = ["server", "transport-io"] }

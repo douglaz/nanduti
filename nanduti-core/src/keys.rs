@@ -48,7 +48,11 @@ impl NwcKeys {
         if self.keys.is_none() {
             self.keys = Some(Keys::parse(&self.secret_key)?);
         }
-        Ok(self.keys.as_ref().unwrap())
+        // Safe to expect: keys is guaranteed to be Some after the if-block above
+        Ok(self
+            .keys
+            .as_ref()
+            .expect("keys should be initialized after parsing"))
     }
 }
 
