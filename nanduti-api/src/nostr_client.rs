@@ -308,7 +308,8 @@ impl NostrClient {
         handler: Arc<crate::NwcHandler>,
     ) -> Result<()> {
         use crate::encryption;
-        use nanduti_core::nwc_protocol::NwcRequest;
+        use nanduti_core::models::PublicKey;
+        use nanduti_core::nwc_protocol::{NwcRequest, NwcRequestContext};
 
         let pubkey = &event.pubkey;
         debug!("Processing event from {pubkey}");
@@ -324,8 +325,15 @@ impl NostrClient {
         let method = &request.method;
         info!("Received NWC request: {method}");
 
+        // Create request context with sender pubkey for authorization
+        let context = NwcRequestContext {
+            request,
+            sender_pubkey: PublicKey::new(event.pubkey.to_hex()),
+            event_id: event.id.to_hex(),
+        };
+
         // Handle the request
-        let response = handler.handle_request(request).await?;
+        let response = handler.handle_request(context).await?;
 
         // Serialize response
         let response_content = serde_json::to_string(&response)?;

@@ -42,6 +42,15 @@ pub struct NwcRequest {
     pub params: Value,
 }
 
+/// NWC request with sender context for authorization
+/// This wraps the raw NWC request with metadata from the Nostr event
+#[derive(Debug, Clone)]
+pub struct NwcRequestContext {
+    pub request: NwcRequest,
+    pub sender_pubkey: PublicKey,
+    pub event_id: String,
+}
+
 /// NWC response structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NwcResponse {
@@ -72,6 +81,8 @@ pub enum NwcErrorCode {
     PaymentFailed,
     NotFound,
     BadRequest,
+    AlreadyPaid,
+    PaymentInProgress,
     Other,
 }
 
@@ -88,6 +99,8 @@ impl NwcErrorCode {
             Self::PaymentFailed => "PAYMENT_FAILED",
             Self::NotFound => "NOT_FOUND",
             Self::BadRequest => "BAD_REQUEST",
+            Self::AlreadyPaid => "ALREADY_PAID",
+            Self::PaymentInProgress => "PAYMENT_IN_PROGRESS",
             Self::Other => "OTHER",
         }
     }

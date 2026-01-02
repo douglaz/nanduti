@@ -10,7 +10,7 @@ use nanduti_core::{
     },
     nwc_protocol::{
         ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcNotificationType,
-        NwcRequest, NwcResponse, PayInvoiceParams, PayKeysendParams,
+        NwcRequestContext, NwcResponse, PayInvoiceParams, PayKeysendParams,
     },
     storage::Storage,
 };
@@ -47,22 +47,33 @@ impl NwcHandler {
         }
     }
 
-    /// Handle a NWC request
-    pub async fn handle_request(&self, request: NwcRequest) -> Result<NwcResponse> {
-        let method_str = &request.method;
-        debug!("Handling NWC request: {method_str}");
+    /// Handle a NWC request with sender context
+    pub async fn handle_request(&self, context: NwcRequestContext) -> Result<NwcResponse> {
+        let sender_pubkey = &context.sender_pubkey;
+        let method_str = &context.request.method;
+        debug!("Handling NWC request: {method_str} from {sender_pubkey}");
 
         // Parse the method string into enum using FromStr trait
         let method = NwcMethod::from_str(method_str);
 
         match method {
-            Ok(NwcMethod::PayInvoice) => self.handle_pay_invoice(request.params).await,
-            Ok(NwcMethod::MakeInvoice) => self.handle_make_invoice(request.params).await,
+            Ok(NwcMethod::PayInvoice) => {
+                self.handle_pay_invoice(context.request.params, sender_pubkey)
+                    .await
+            }
+            Ok(NwcMethod::MakeInvoice) => self.handle_make_invoice(context.request.params).await,
             Ok(NwcMethod::GetBalance) => self.handle_get_balance().await,
-            Ok(NwcMethod::ListTransactions) => self.handle_list_transactions(request.params).await,
+            Ok(NwcMethod::ListTransactions) => {
+                self.handle_list_transactions(context.request.params).await
+            }
             Ok(NwcMethod::GetInfo) => self.handle_get_info().await,
-            Ok(NwcMethod::PayKeysend) => self.handle_pay_keysend(request.params).await,
-            Ok(NwcMethod::LookupInvoice) => self.handle_lookup_invoice(request.params).await,
+            Ok(NwcMethod::PayKeysend) => {
+                self.handle_pay_keysend(context.request.params, sender_pubkey)
+                    .await
+            }
+            Ok(NwcMethod::LookupInvoice) => {
+                self.handle_lookup_invoice(context.request.params).await
+            }
             Ok(NwcMethod::MultiPayInvoice) | Ok(NwcMethod::MultiPayKeysend) => {
                 warn!("Unimplemented method: {method_str}");
                 Ok(NwcResponse::error(
@@ -83,7 +94,11 @@ impl NwcHandler {
     }
 
     /// Handle pay_invoice request
-    async fn handle_pay_invoice(&self, params: Value) -> Result<NwcResponse> {
+    async fn handle_pay_invoice(
+        &self,
+        params: Value,
+        sender_pubkey: &nanduti_core::models::PublicKey,
+    ) -> Result<NwcResponse> {
         let params: PayInvoiceParams =
             serde_json::from_value(params).context("Invalid pay_invoice parameters")?;
 
@@ -102,6 +117,132 @@ impl NwcHandler {
             bail!("Invoice amount not specified");
         };
 
+        // AUTHORIZATION CHECKS
+        if let Some(storage) = &self.storage {
+            // 1. Look up connection by sender pubkey
+            let connection = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?;
+
+            let connection = match connection {
+                Some(conn) => conn,
+                None => {
+                    warn!(
+                        "Unauthorized payment attempt from unknown pubkey: {}",
+                        sender_pubkey
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_invoice".to_string(),
+                        NwcErrorCode::Unauthorized,
+                        "No active connection found for this pubkey".to_string(),
+                    ));
+                }
+            };
+
+            // 2. Check if pay_invoice method is allowed
+            if !connection
+                .allowed_methods
+                .contains(&"pay_invoice".to_string())
+                && !connection.allowed_methods.contains(&"*".to_string())
+            {
+                warn!(
+                    "Connection {} attempted to use restricted method: pay_invoice",
+                    connection.id
+                );
+                return Ok(NwcResponse::error(
+                    "pay_invoice".to_string(),
+                    NwcErrorCode::Restricted,
+                    "Method pay_invoice is not allowed for this connection".to_string(),
+                ));
+            }
+
+            // 3. Check per-payment limit
+            if let Some(per_payment_limit) = connection.per_payment_limit_msats {
+                if amount.as_msats() > per_payment_limit {
+                    warn!(
+                        "Payment of {} msats exceeds per-payment limit of {} msats for connection {}",
+                        amount.as_msats(),
+                        per_payment_limit,
+                        connection.id
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_invoice".to_string(),
+                        NwcErrorCode::QuotaExceeded,
+                        format!(
+                            "Payment amount {} msats exceeds per-payment limit of {} msats",
+                            amount.as_msats(),
+                            per_payment_limit
+                        ),
+                    ));
+                }
+            }
+
+            // 4. Check daily spending limit
+            if let Some(daily_limit) = connection.daily_limit_msats {
+                // Get current day timestamp (00:00:00 UTC)
+                // SECURITY: We must fail if system clock is broken, not silently use epoch
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .context("System clock error: time is before UNIX epoch")?
+                    .as_secs();
+                let day_start = (now / 86400) * 86400; // Round down to start of day
+
+                let daily_spent = storage
+                    .get_daily_spent(&connection.id, day_start)
+                    .context("Failed to get daily spending")?;
+
+                let total_after_payment = daily_spent.saturating_add(amount.as_msats());
+
+                if total_after_payment > daily_limit {
+                    warn!(
+                        "Payment would exceed daily limit: spent {} msats, limit {} msats, payment {} msats for connection {}",
+                        daily_spent, daily_limit, amount.as_msats(), connection.id
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_invoice".to_string(),
+                        NwcErrorCode::QuotaExceeded,
+                        format!(
+                            "Payment would exceed daily limit: spent {} msats of {} msats limit",
+                            daily_spent, daily_limit
+                        ),
+                    ));
+                }
+            }
+
+            // 5. Check for duplicate payment (same payment hash already settled)
+            let existing_txs = storage
+                .get_transactions_by_payment_hash(invoice.payment_hash.as_str())
+                .context("Failed to check for duplicate payments")?;
+
+            for tx in existing_txs {
+                if tx.state == TransactionState::Settled {
+                    warn!(
+                        "Duplicate payment attempt detected for payment_hash {} by connection {}",
+                        invoice.payment_hash, connection.id
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_invoice".to_string(),
+                        NwcErrorCode::AlreadyPaid,
+                        format!("Invoice already paid (transaction {})", tx.id.as_str()),
+                    ));
+                } else if tx.state == TransactionState::Pending {
+                    warn!(
+                        "Payment already in progress for payment_hash {} (transaction {})",
+                        invoice.payment_hash,
+                        tx.id.as_str()
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_invoice".to_string(),
+                        NwcErrorCode::PaymentInProgress,
+                        format!(
+                            "Payment already in progress (transaction {})",
+                            tx.id.as_str()
+                        ),
+                    ));
+                }
+            }
+        }
+
         // Select federation
         let federation = self.router.select_federation(amount).await?;
 
@@ -111,10 +252,55 @@ impl NwcHandler {
             amount.as_msats()
         );
 
+        // Check if federation is allowed (only if storage is enabled with connection)
+        if let Some(storage) = &self.storage {
+            if let Some(connection) = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection for federation check")?
+            {
+                // Check federation restriction
+                if !connection.allowed_federations.contains(&"*".to_string())
+                    && !connection
+                        .allowed_federations
+                        .contains(&federation.id.to_string())
+                {
+                    warn!(
+                        "Connection {} attempted to use restricted federation: {}",
+                        connection.id, federation.id
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_invoice".to_string(),
+                        NwcErrorCode::Restricted,
+                        format!(
+                            "Federation {} is not allowed for this connection",
+                            federation.id
+                        ),
+                    ));
+                }
+            }
+        }
+
         // Store initial transaction before payment
         let uuid = uuid::Uuid::new_v4();
         let transaction_id = TransactionId::new(format!("tx_{uuid}"));
         let created_at = Timestamp::now();
+
+        // Create metadata with connection_id for tracking
+        let metadata = if let Some(storage) = &self.storage {
+            if let Some(connection) = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection for metadata")?
+            {
+                Some(serde_json::json!({
+                    "connection_id": connection.id,
+                    "sender_pubkey": sender_pubkey.as_str()
+                }))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
@@ -130,7 +316,7 @@ impl NwcHandler {
                 fees_paid: None,
                 created_at,
                 settled_at: None,
-                metadata: None,
+                metadata: metadata.clone(),
             };
             storage.store_transaction(&transaction)?;
         }
@@ -141,7 +327,39 @@ impl NwcHandler {
             .as_ref()
             .ok_or_else(|| anyhow!("Federation client not initialized"))?;
 
-        let result = client.pay_invoice(&invoice).await?;
+        let result = match client.pay_invoice(&invoice).await {
+            Ok(payment_result) => payment_result,
+            Err(error) => {
+                // Payment failed - update transaction state to Failed
+                if let Some(storage) = &self.storage {
+                    let failed_transaction = Transaction {
+                        id: transaction_id.clone(),
+                        federation_id: federation.id.clone(),
+                        transaction_type: TransactionType::Outgoing,
+                        state: TransactionState::Failed,
+                        invoice: Some(params.invoice.clone()),
+                        description: invoice.description.clone(),
+                        preimage: None,
+                        payment_hash: invoice.payment_hash.clone(),
+                        amount,
+                        fees_paid: None,
+                        created_at,
+                        settled_at: None,
+                        metadata: metadata.clone(),
+                    };
+                    storage
+                        .store_transaction(&failed_transaction)
+                        .context("Failed to store failed transaction")?;
+                }
+
+                // Return payment failed error
+                return Ok(NwcResponse::error(
+                    "pay_invoice".to_string(),
+                    NwcErrorCode::PaymentFailed,
+                    format!("Payment failed: {error}"),
+                ));
+            }
+        };
 
         // Update transaction with settlement details
         if let Some(storage) = &self.storage {
@@ -158,9 +376,21 @@ impl NwcHandler {
                 fees_paid: result.fees_paid,
                 created_at,
                 settled_at: Some(Timestamp::now()),
-                metadata: None,
+                metadata: metadata.clone(),
             };
             storage.store_transaction(&transaction)?;
+
+            // Increment connection's spent amount after successful payment
+            if let Some(connection) = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection for spending update")?
+            {
+                let total_amount =
+                    amount.as_msats() + result.fees_paid.map(|f| f.as_msats()).unwrap_or(0);
+                storage
+                    .increment_connection_spent(&connection.id, total_amount)
+                    .context("Failed to increment connection spent")?;
+            }
         }
 
         Ok(NwcResponse::pay_invoice(result))
@@ -302,11 +532,108 @@ impl NwcHandler {
     }
 
     /// Handle pay_keysend request
-    async fn handle_pay_keysend(&self, params: Value) -> Result<NwcResponse> {
+    async fn handle_pay_keysend(
+        &self,
+        params: Value,
+        sender_pubkey: &nanduti_core::models::PublicKey,
+    ) -> Result<NwcResponse> {
         let params: PayKeysendParams =
             serde_json::from_value(params).context("Invalid pay_keysend parameters")?;
 
         let amount = params.amount;
+
+        // AUTHORIZATION CHECKS
+        if let Some(storage) = &self.storage {
+            // 1. Look up connection by sender pubkey
+            let connection = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?;
+
+            let connection = match connection {
+                Some(conn) => conn,
+                None => {
+                    warn!(
+                        "Unauthorized keysend attempt from unknown pubkey: {}",
+                        sender_pubkey
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_keysend".to_string(),
+                        NwcErrorCode::Unauthorized,
+                        "No active connection found for this pubkey".to_string(),
+                    ));
+                }
+            };
+
+            // 2. Check if pay_keysend method is allowed
+            if !connection
+                .allowed_methods
+                .contains(&"pay_keysend".to_string())
+                && !connection.allowed_methods.contains(&"*".to_string())
+            {
+                warn!(
+                    "Connection {} attempted to use restricted method: pay_keysend",
+                    connection.id
+                );
+                return Ok(NwcResponse::error(
+                    "pay_keysend".to_string(),
+                    NwcErrorCode::Restricted,
+                    "Method pay_keysend is not allowed for this connection".to_string(),
+                ));
+            }
+
+            // 3. Check per-payment limit
+            if let Some(per_payment_limit) = connection.per_payment_limit_msats {
+                if amount.as_msats() > per_payment_limit {
+                    warn!(
+                        "Keysend payment of {} msats exceeds per-payment limit of {} msats for connection {}",
+                        amount.as_msats(),
+                        per_payment_limit,
+                        connection.id
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_keysend".to_string(),
+                        NwcErrorCode::QuotaExceeded,
+                        format!(
+                            "Payment amount {} msats exceeds per-payment limit of {} msats",
+                            amount.as_msats(),
+                            per_payment_limit
+                        ),
+                    ));
+                }
+            }
+
+            // 4. Check daily spending limit
+            if let Some(daily_limit) = connection.daily_limit_msats {
+                // Get current day timestamp (00:00:00 UTC)
+                // SECURITY: We must fail if system clock is broken, not silently use epoch
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .context("System clock error: time is before UNIX epoch")?
+                    .as_secs();
+                let day_start = (now / 86400) * 86400; // Round down to start of day
+
+                let daily_spent = storage
+                    .get_daily_spent(&connection.id, day_start)
+                    .context("Failed to get daily spending")?;
+
+                let total_after_payment = daily_spent.saturating_add(amount.as_msats());
+
+                if total_after_payment > daily_limit {
+                    warn!(
+                        "Keysend payment would exceed daily limit: spent {} msats, limit {} msats, payment {} msats for connection {}",
+                        daily_spent, daily_limit, amount.as_msats(), connection.id
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_keysend".to_string(),
+                        NwcErrorCode::QuotaExceeded,
+                        format!(
+                            "Payment would exceed daily limit: spent {} msats of {} msats limit",
+                            daily_spent, daily_limit
+                        ),
+                    ));
+                }
+            }
+        }
 
         // Select federation
         let federation = self.router.select_federation(amount).await?;
@@ -318,12 +645,57 @@ impl NwcHandler {
             "Sending keysend via federation {federation_id} for {amount_msats} msats to {pubkey}"
         );
 
+        // Check if federation is allowed (only if storage is enabled with connection)
+        if let Some(storage) = &self.storage {
+            if let Some(connection) = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection for federation check")?
+            {
+                // Check federation restriction
+                if !connection.allowed_federations.contains(&"*".to_string())
+                    && !connection
+                        .allowed_federations
+                        .contains(&federation.id.to_string())
+                {
+                    warn!(
+                        "Connection {} attempted to use restricted federation: {}",
+                        connection.id, federation.id
+                    );
+                    return Ok(NwcResponse::error(
+                        "pay_keysend".to_string(),
+                        NwcErrorCode::Restricted,
+                        format!(
+                            "Federation {} is not allowed for this connection",
+                            federation.id
+                        ),
+                    ));
+                }
+            }
+        }
+
         // Store initial transaction before payment
         let uuid = uuid::Uuid::new_v4();
         let transaction_id = TransactionId::new(format!("tx_{uuid}"));
         let created_at = Timestamp::now();
         let pubkey = params.pubkey.as_str();
         let description = Some(Description::new(format!("Keysend to {pubkey}")));
+
+        // Create metadata with connection_id for tracking
+        let metadata = if let Some(storage) = &self.storage {
+            if let Some(connection) = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection for metadata")?
+            {
+                Some(serde_json::json!({
+                    "connection_id": connection.id,
+                    "sender_pubkey": sender_pubkey.as_str()
+                }))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
@@ -339,7 +711,7 @@ impl NwcHandler {
                 fees_paid: None,
                 created_at,
                 settled_at: None,
-                metadata: None,
+                metadata: metadata.clone(),
             };
             storage.store_transaction(&transaction)?;
         }
@@ -355,7 +727,39 @@ impl NwcHandler {
             .transpose()
             .context("Invalid preimage hex")?;
 
-        let result = client.pay_keysend(&params.pubkey, amount, preimage).await?;
+        let result = match client.pay_keysend(&params.pubkey, amount, preimage).await {
+            Ok(payment_result) => payment_result,
+            Err(error) => {
+                // Payment failed - update transaction state to Failed
+                if let Some(storage) = &self.storage {
+                    let failed_transaction = Transaction {
+                        id: transaction_id.clone(),
+                        federation_id: federation.id.clone(),
+                        transaction_type: TransactionType::Outgoing,
+                        state: TransactionState::Failed,
+                        invoice: None,
+                        description: description.clone(),
+                        preimage: None,
+                        payment_hash: PaymentHash::new(String::new()),
+                        amount,
+                        fees_paid: None,
+                        created_at,
+                        settled_at: None,
+                        metadata: metadata.clone(),
+                    };
+                    storage
+                        .store_transaction(&failed_transaction)
+                        .context("Failed to store failed transaction")?;
+                }
+
+                // Return payment failed error
+                return Ok(NwcResponse::error(
+                    "pay_keysend".to_string(),
+                    NwcErrorCode::PaymentFailed,
+                    format!("Keysend payment failed: {error}"),
+                ));
+            }
+        };
 
         // Update transaction with settlement details
         if let Some(storage) = &self.storage {
@@ -372,9 +776,21 @@ impl NwcHandler {
                 fees_paid: result.fees_paid,
                 created_at,
                 settled_at: Some(Timestamp::now()),
-                metadata: None,
+                metadata: metadata.clone(),
             };
             storage.store_transaction(&transaction)?;
+
+            // Increment connection's spent amount after successful payment
+            if let Some(connection) = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection for spending update")?
+            {
+                let total_amount =
+                    amount.as_msats() + result.fees_paid.map(|f| f.as_msats()).unwrap_or(0);
+                storage
+                    .increment_connection_spent(&connection.id, total_amount)
+                    .context("Failed to increment connection spent")?;
+            }
         }
 
         Ok(NwcResponse::pay_invoice(result))

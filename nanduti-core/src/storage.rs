@@ -199,16 +199,34 @@ impl Storage {
         Ok(())
     }
 
-    /// Get transactions for a federation
+    /// Get transactions for a federation with hard limits to prevent memory exhaustion
+    ///
+    /// # Safety
+    /// - Applies hard cap of 1000 transactions maximum
+    /// - Stops scanning after 10,000 items to prevent DoS
+    /// - Logs warning if scan limit exceeded
     pub fn get_federation_transactions(
         &self,
         federation_id: &FederationId,
         limit: Option<usize>,
     ) -> Result<Vec<Transaction>> {
+        const MAX_LIMIT: usize = 1000;
+        const MAX_SCAN: usize = 10_000;
+
+        let limit = limit.unwrap_or(100).min(MAX_LIMIT);
         let mut transactions = Vec::new();
+        let mut scanned = 0;
 
         if let Some(tree) = &self.transactions {
             for item in tree.iter() {
+                scanned += 1;
+                if scanned > MAX_SCAN {
+                    tracing::warn!(
+                        "Transaction scan exceeded {MAX_SCAN} items for federation {federation_id}, aborting"
+                    );
+                    break;
+                }
+
                 let (_, value) = item.context("Failed to read transaction item")?;
                 let transaction: Transaction =
                     serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
@@ -216,10 +234,8 @@ impl Storage {
                 if transaction.federation_id == *federation_id {
                     transactions.push(transaction);
 
-                    if let Some(limit) = limit {
-                        if transactions.len() >= limit {
-                            break;
-                        }
+                    if transactions.len() >= limit {
+                        break;
                     }
                 }
             }
@@ -231,11 +247,17 @@ impl Storage {
         Ok(transactions)
     }
 
-    /// Get a transaction by payment hash
-    pub fn get_transaction_by_payment_hash(
-        &self,
-        payment_hash: &str,
-    ) -> Result<Option<Transaction>> {
+    /// Get all transactions matching a payment hash
+    ///
+    /// # Returns
+    /// Returns all matching transactions sorted by creation time (most recent first).
+    /// Multiple transactions can have the same payment hash (retries, duplicate invoices).
+    ///
+    /// # Performance
+    /// This performs a full table scan. Consider using indexed storage for production.
+    pub fn get_transactions_by_payment_hash(&self, payment_hash: &str) -> Result<Vec<Transaction>> {
+        let mut transactions = Vec::new();
+
         if let Some(tree) = &self.transactions {
             for item in tree.iter() {
                 let (_, value) = item.context("Failed to read transaction item")?;
@@ -243,11 +265,27 @@ impl Storage {
                     serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
 
                 if transaction.payment_hash.as_str() == payment_hash {
-                    return Ok(Some(transaction));
+                    transactions.push(transaction);
                 }
             }
         }
-        Ok(None)
+
+        // Sort by created_at descending (most recent first)
+        transactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        Ok(transactions)
+    }
+
+    /// Get the most recent transaction by payment hash
+    ///
+    /// # Returns
+    /// Returns the most recent transaction matching the payment hash, or None if not found.
+    pub fn get_transaction_by_payment_hash(
+        &self,
+        payment_hash: &str,
+    ) -> Result<Option<Transaction>> {
+        let transactions = self.get_transactions_by_payment_hash(payment_hash)?;
+        Ok(transactions.into_iter().next())
     }
 
     /// Get a transaction by invoice
@@ -268,15 +306,119 @@ impl Storage {
         Ok(None)
     }
 
-    /// Store a NWC connection
+    /// Store a NWC connection with ACID guarantees
+    ///
+    /// # ACID Properties
+    /// Uses sled transactions to ensure atomic updates, preventing race conditions
+    /// in connection state (especially important for total_spent_msats tracking).
     pub fn store_connection(&self, connection: &NwcConnection) -> Result<()> {
         if let Some(tree) = &self.connections {
-            let data = serde_json::to_vec(connection).context("Failed to serialize connection")?;
-            tree.insert(connection.id.as_bytes(), data)
-                .context("Failed to store connection")?;
+            // Clone connection so it can be captured by the transaction closure
+            let connection_clone = connection.clone();
+
+            // Use sled's transactional API for atomic commits
+            tree.transaction(|tx_tree| {
+                // All operations must be inside the transaction closure
+                let data = serde_json::to_vec(&connection_clone)
+                    .map_err(|_| sled::transaction::ConflictableTransactionError::Abort(()))?;
+
+                tx_tree.insert(connection_clone.id.as_bytes(), data.as_slice())?;
+                Ok::<(), sled::transaction::ConflictableTransactionError<()>>(())
+            })
+            .map_err(|error| anyhow::anyhow!("Connection store failed: {error:?}"))?;
+
             debug!("Stored connection: {}", connection.id);
         }
         Ok(())
+    }
+
+    /// Atomically increment connection's spent amount and update last_used timestamp
+    ///
+    /// # ACID Properties
+    /// This method uses a transaction to perform read-modify-write atomically,
+    /// preventing lost updates when multiple payments occur concurrently.
+    pub fn increment_connection_spent(&self, connection_id: &str, amount_msats: u64) -> Result<()> {
+        if let Some(tree) = &self.connections {
+            let connection_id_str = connection_id.to_string();
+
+            tree.transaction(|tx_tree| {
+                // Read current connection
+                let data = tx_tree
+                    .get(connection_id_str.as_bytes())?
+                    .ok_or(sled::transaction::ConflictableTransactionError::Abort(()))?;
+
+                let mut connection: NwcConnection = serde_json::from_slice(&data)
+                    .map_err(|_| sled::transaction::ConflictableTransactionError::Abort(()))?;
+
+                // Update spent amount and last_used atomically
+                connection.total_spent_msats =
+                    connection.total_spent_msats.saturating_add(amount_msats);
+                // Note: last_used is informational only, fallback to epoch if clock is broken
+                // This is inside a sled transaction so we can't use ? operator
+                connection.last_used = Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0), // Fallback to epoch (Jan 1, 1970) if system clock is before UNIX epoch
+                );
+
+                // Write back
+                let updated_data = serde_json::to_vec(&connection)
+                    .map_err(|_| sled::transaction::ConflictableTransactionError::Abort(()))?;
+
+                tx_tree.insert(connection_id_str.as_bytes(), updated_data.as_slice())?;
+                Ok::<(), sled::transaction::ConflictableTransactionError<()>>(())
+            })
+            .map_err(|error| anyhow::anyhow!("Connection spent increment failed: {error:?}"))?;
+
+            debug!("Incremented connection {connection_id} spent by {amount_msats} msats");
+        }
+        Ok(())
+    }
+
+    /// Get daily spent amount for a connection
+    ///
+    /// # Parameters
+    /// - `connection_id`: Connection identifier
+    /// - `day_timestamp`: Unix timestamp for the start of the day (00:00:00 UTC)
+    ///
+    /// # Returns
+    /// Total amount spent in millisatoshis for the specified day
+    pub fn get_daily_spent(&self, connection_id: &str, day_timestamp: u64) -> Result<u64> {
+        let mut daily_spent = 0u64;
+
+        // Calculate day boundaries (00:00:00 to 23:59:59 UTC)
+        let day_start = day_timestamp;
+        let day_end = day_start + 86400; // 24 hours in seconds
+
+        if let Some(tree) = &self.transactions {
+            for item in tree.iter() {
+                let (_, value) = item.context("Failed to read transaction item")?;
+                let transaction: Transaction =
+                    serde_json::from_slice(&value).context("Failed to deserialize transaction")?;
+
+                // Check if transaction is from this connection
+                if let Some(metadata) = &transaction.metadata {
+                    if let Some(conn_id) = metadata.get("connection_id") {
+                        if conn_id.as_str() == Some(connection_id) {
+                            // Check if transaction is within the day
+                            let tx_timestamp = transaction.created_at.as_secs();
+                            if tx_timestamp >= day_start && tx_timestamp < day_end {
+                                // Only count outgoing payments
+                                if transaction.transaction_type
+                                    == crate::models::TransactionType::Outgoing
+                                {
+                                    daily_spent =
+                                        daily_spent.saturating_add(transaction.amount.as_msats());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(daily_spent)
     }
 
     /// Get a NWC connection by public key
