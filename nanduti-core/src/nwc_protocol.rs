@@ -158,12 +158,16 @@ impl NwcResponse {
             preimage: result.preimage,
             fees_paid: result.fees_paid,
         };
-        Self {
-            result_type: "pay_invoice".to_string(),
-            error: None,
-            result: Some(
-                serde_json::to_value(pay_result)
-                    .expect("PayInvoiceResult should always serialize successfully"),
+        match serde_json::to_value(pay_result) {
+            Ok(value) => Self {
+                result_type: "pay_invoice".to_string(),
+                error: None,
+                result: Some(value),
+            },
+            Err(error) => Self::error(
+                "pay_invoice".to_string(),
+                NwcErrorCode::Internal,
+                format!("Failed to serialize response: {error}"),
             ),
         }
     }
@@ -173,12 +177,16 @@ impl NwcResponse {
         let balance_result = GetBalanceResult {
             balance: Amount::from_msats(balance_msats),
         };
-        Self {
-            result_type: "get_balance".to_string(),
-            error: None,
-            result: Some(
-                serde_json::to_value(balance_result)
-                    .expect("GetBalanceResult should always serialize successfully"),
+        match serde_json::to_value(balance_result) {
+            Ok(value) => Self {
+                result_type: "get_balance".to_string(),
+                error: None,
+                result: Some(value),
+            },
+            Err(error) => Self::error(
+                "get_balance".to_string(),
+                NwcErrorCode::Internal,
+                format!("Failed to serialize response: {error}"),
             ),
         }
     }
@@ -195,12 +203,16 @@ impl NwcResponse {
             created_at: transaction.created_at,
             expires_at: invoice.expiry.map(|e| transaction.created_at + e.as_secs()),
         };
-        Self {
-            result_type: "make_invoice".to_string(),
-            error: None,
-            result: Some(
-                serde_json::to_value(make_result)
-                    .expect("MakeInvoiceResult should always serialize successfully"),
+        match serde_json::to_value(make_result) {
+            Ok(value) => Self {
+                result_type: "make_invoice".to_string(),
+                error: None,
+                result: Some(value),
+            },
+            Err(error) => Self::error(
+                "make_invoice".to_string(),
+                NwcErrorCode::Internal,
+                format!("Failed to serialize response: {error}"),
             ),
         }
     }
@@ -228,12 +240,16 @@ impl NwcResponse {
             transactions: tx_list,
         };
 
-        Self {
-            result_type: "list_transactions".to_string(),
-            error: None,
-            result: Some(
-                serde_json::to_value(list_result)
-                    .expect("ListTransactionsResult should always serialize successfully"),
+        match serde_json::to_value(list_result) {
+            Ok(value) => Self {
+                result_type: "list_transactions".to_string(),
+                error: None,
+                result: Some(value),
+            },
+            Err(error) => Self::error(
+                "list_transactions".to_string(),
+                NwcErrorCode::Internal,
+                format!("Failed to serialize response: {error}"),
             ),
         }
     }
@@ -257,12 +273,16 @@ impl NwcResponse {
             methods,
             notifications,
         };
-        Self {
-            result_type: "get_info".to_string(),
-            error: None,
-            result: Some(
-                serde_json::to_value(info_result)
-                    .expect("GetInfoResult should always serialize successfully"),
+        match serde_json::to_value(info_result) {
+            Ok(value) => Self {
+                result_type: "get_info".to_string(),
+                error: None,
+                result: Some(value),
+            },
+            Err(error) => Self::error(
+                "get_info".to_string(),
+                NwcErrorCode::Internal,
+                format!("Failed to serialize response: {error}"),
             ),
         }
     }

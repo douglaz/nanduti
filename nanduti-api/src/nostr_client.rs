@@ -220,10 +220,13 @@ impl NostrClient {
 
     /// Handle incoming NWC events
     pub async fn handle_nwc_events(&self, handler: Arc<crate::NwcHandler>) -> Result<()> {
-        use std::collections::HashSet;
+        use lru::LruCache;
+        use std::num::NonZeroUsize;
 
-        // Track processed events to avoid duplicates
-        let mut processed_events = HashSet::new();
+        // Track processed events to avoid duplicates using LRU cache
+        // Capacity of 10,000 provides good memory bounds while preventing duplicate processing
+        const EVENT_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(10000).unwrap();
+        let mut processed_events = LruCache::new(EVENT_CACHE_CAPACITY);
 
         // Subscribe to NWC request events (kind 23194) sent to us
         let filter = Filter::new()
@@ -238,28 +241,58 @@ impl NostrClient {
         // Use proper event streaming (subscribe and poll)
         self.client.subscribe(filter.clone(), None).await?;
 
+        // Circuit breaker for error handling
+        let mut consecutive_errors = 0;
+        const MAX_CONSECUTIVE_ERRORS: usize = 10;
+        const BASE_BACKOFF_MS: u64 = 500;
+        const MAX_BACKOFF_MS: u64 = 30_000; // Cap at 30 seconds for payment systems
+
         // Poll for events continuously
         loop {
             // Get new events from database
-            let events = self.client.database().query(filter.clone()).await?;
+            match self.client.database().query(filter.clone()).await {
+                Ok(events) => {
+                    consecutive_errors = 0; // Reset error counter on success
 
-            for event in events {
-                // Skip if we've already processed this event
-                if processed_events.contains(&event.id) {
+                    for event in events {
+                        // Skip if we've already processed this event
+                        if processed_events.contains(&event.id) {
+                            continue;
+                        }
+
+                        // Mark as processed (LRU cache automatically evicts oldest when full)
+                        processed_events.put(event.id, ());
+
+                        // Handle the event
+                        if let Err(e) = self.handle_single_event(event, handler.clone()).await {
+                            tracing::error!("Error handling event: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    consecutive_errors += 1;
+                    tracing::error!(
+                        "Error querying events (attempt {consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}"
+                    );
+
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                        anyhow::bail!(
+                            "Too many consecutive errors in event handler ({MAX_CONSECUTIVE_ERRORS}), shutting down"
+                        );
+                    }
+
+                    // Exponential backoff with proper cap
+                    // Formula: BASE * 2^(attempts - 1), capped at MAX
+                    // Error 1: 500ms, Error 2: 1s, Error 3: 2s, Error 4: 4s, Error 5: 8s, Error 6: 16s, Error 7+: 30s
+                    // Note: consecutive_errors is guaranteed to be >= 1 here (incremented on line 273)
+                    let backoff_ms = (BASE_BACKOFF_MS * 2_u64.pow((consecutive_errors - 1) as u32))
+                        .min(MAX_BACKOFF_MS);
+
+                    tracing::warn!(
+                        "Backing off for {backoff_ms}ms before retry (consecutive errors: {consecutive_errors})"
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
                     continue;
-                }
-
-                // Mark as processed
-                processed_events.insert(event.id);
-
-                // Handle the event
-                if let Err(e) = self.handle_single_event(event, handler.clone()).await {
-                    tracing::error!("Error handling event: {e}");
-                }
-
-                // Clean up old events if the set gets too large
-                if processed_events.len() > 10000 {
-                    processed_events.clear();
                 }
             }
 

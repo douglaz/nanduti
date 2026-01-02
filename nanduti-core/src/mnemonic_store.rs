@@ -244,3 +244,426 @@ impl MnemonicStore {
         Ok(key)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_mnemonic_encryption_round_trip() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password-12345";
+
+        // Generate a test mnemonic
+        let entropy = [0u8; 16];
+        let original_mnemonic = Mnemonic::from_entropy(&entropy)?;
+
+        // Store the mnemonic
+        MnemonicStore::store_mnemonic(temp_dir.path(), &original_mnemonic, Some(password)).await?;
+
+        // Verify file exists
+        assert!(MnemonicStore::has_mnemonic(temp_dir.path()).await?);
+
+        // Load and verify
+        let loaded_mnemonic = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password)).await?;
+
+        assert!(loaded_mnemonic.is_some());
+        assert_eq!(
+            original_mnemonic.to_string(),
+            loaded_mnemonic.unwrap().to_string()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_wrong_password_fails() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let correct_password = "correct-password";
+        let wrong_password = "wrong-password";
+
+        // Generate and store mnemonic
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+
+        MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic, Some(correct_password)).await?;
+
+        // Try to load with wrong password - should fail
+        let result = MnemonicStore::load_mnemonic(temp_dir.path(), Some(wrong_password)).await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Decryption failed"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_no_password_store_fails() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+
+        // Generate mnemonic
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+
+        // Try to store without password - should fail
+        let result = MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic, None).await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Password is required"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_empty_password_fails() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+
+        // Generate mnemonic
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+
+        // Try to store with empty password - should fail
+        let result = MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic, Some("")).await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Password cannot be empty"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_load_nonexistent_returns_none() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+
+        // Try to load from empty directory
+        let result = MnemonicStore::load_mnemonic(temp_dir.path(), Some("password")).await?;
+
+        assert!(result.is_none());
+        assert!(!MnemonicStore::has_mnemonic(temp_dir.path()).await?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_different_passwords_produce_different_ciphertexts() -> Result<()> {
+        let temp_dir1 = TempDir::new()?;
+        let temp_dir2 = TempDir::new()?;
+
+        // Same mnemonic, different passwords
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+
+        MnemonicStore::store_mnemonic(temp_dir1.path(), &mnemonic, Some("password1")).await?;
+        MnemonicStore::store_mnemonic(temp_dir2.path(), &mnemonic, Some("password2")).await?;
+
+        // Read the encrypted files
+        let file1 = tokio::fs::read(temp_dir1.path().join(".mnemonic")).await?;
+        let file2 = tokio::fs::read(temp_dir2.path().join(".mnemonic")).await?;
+
+        // Ciphertexts should be different (due to different salts/nonces/keys)
+        assert_ne!(file1, file2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_tampered_data_fails() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password";
+
+        // Generate and store mnemonic
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+        MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic, Some(password)).await?;
+
+        // Read the file
+        let mnemonic_path = temp_dir.path().join(".mnemonic");
+        let mut file_content = tokio::fs::read(&mnemonic_path).await?;
+
+        // Tamper with the ciphertext (flip a bit in the last byte)
+        let last_idx = file_content.len() - 1;
+        file_content[last_idx] ^= 0x01;
+
+        // Write back tampered data
+        tokio::fs::write(&mnemonic_path, file_content).await?;
+
+        // Try to load - should fail authentication
+        let result = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password)).await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Decryption failed"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_multiple_store_load_cycles() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password";
+
+        // First cycle
+        let entropy1 = [1u8; 16];
+        let mnemonic1 = Mnemonic::from_entropy(&entropy1)?;
+        MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic1, Some(password)).await?;
+
+        let loaded1 = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password))
+            .await?
+            .unwrap();
+        assert_eq!(mnemonic1.to_string(), loaded1.to_string());
+
+        // Second cycle (overwrite)
+        let entropy2 = [2u8; 16];
+        let mnemonic2 = Mnemonic::from_entropy(&entropy2)?;
+        MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic2, Some(password)).await?;
+
+        let loaded2 = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password))
+            .await?
+            .unwrap();
+        assert_eq!(mnemonic2.to_string(), loaded2.to_string());
+
+        // Should have the second mnemonic, not the first
+        assert_ne!(mnemonic1.to_string(), loaded2.to_string());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_concurrent_store_operations() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password";
+
+        // Generate test mnemonics
+        let entropy1 = [1u8; 16];
+        let mnemonic1 = Mnemonic::from_entropy(&entropy1)?;
+        let entropy2 = [2u8; 16];
+        let mnemonic2 = Mnemonic::from_entropy(&entropy2)?;
+
+        // Clone Arc for concurrent access
+        let path1 = temp_dir.path().to_path_buf();
+        let path2 = temp_dir.path().to_path_buf();
+
+        // Store concurrently from multiple tasks
+        let handle1 = tokio::spawn(async move {
+            MnemonicStore::store_mnemonic(&path1, &mnemonic1, Some(password)).await
+        });
+
+        let handle2 = tokio::spawn(async move {
+            MnemonicStore::store_mnemonic(&path2, &mnemonic2, Some(password)).await
+        });
+
+        // Wait for both to complete - one should succeed
+        let result1 = handle1.await?;
+        let result2 = handle2.await?;
+
+        // At least one should succeed (last write wins)
+        assert!(result1.is_ok() || result2.is_ok());
+
+        // Verify we can load the mnemonic that was written last
+        let loaded = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password)).await?;
+        assert!(loaded.is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_concurrent_load_operations() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password";
+
+        // Store a mnemonic first
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+        MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic, Some(password)).await?;
+
+        // Load concurrently from multiple tasks
+        let path1 = temp_dir.path().to_path_buf();
+        let path2 = temp_dir.path().to_path_buf();
+        let path3 = temp_dir.path().to_path_buf();
+
+        let handle1 =
+            tokio::spawn(async move { MnemonicStore::load_mnemonic(&path1, Some(password)).await });
+
+        let handle2 =
+            tokio::spawn(async move { MnemonicStore::load_mnemonic(&path2, Some(password)).await });
+
+        let handle3 =
+            tokio::spawn(async move { MnemonicStore::load_mnemonic(&path3, Some(password)).await });
+
+        // All should succeed with the same mnemonic
+        let result1 = handle1.await??;
+        let result2 = handle2.await??;
+        let result3 = handle3.await??;
+
+        assert!(result1.is_some());
+        assert!(result2.is_some());
+        assert!(result3.is_some());
+
+        assert_eq!(result1.unwrap().to_string(), mnemonic.to_string());
+        assert_eq!(result2.unwrap().to_string(), mnemonic.to_string());
+        assert_eq!(result3.unwrap().to_string(), mnemonic.to_string());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_truncated_file_fails() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password";
+
+        // Generate and store mnemonic
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+        MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic, Some(password)).await?;
+
+        // Read the file
+        let mnemonic_path = temp_dir.path().join(".mnemonic");
+        let file_content = tokio::fs::read(&mnemonic_path).await?;
+
+        // Test various truncation scenarios
+        let truncation_points = vec![
+            0,                          // Empty file
+            SALT_SIZE - 1,              // Incomplete salt
+            SALT_SIZE,                  // Only salt
+            SALT_SIZE + NONCE_SIZE - 1, // Incomplete nonce
+            SALT_SIZE + NONCE_SIZE,     // Salt + nonce, no ciphertext
+        ];
+
+        for truncate_at in truncation_points {
+            let truncated = &file_content[0..truncate_at];
+            tokio::fs::write(&mnemonic_path, truncated).await?;
+
+            let result = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password)).await;
+            assert!(
+                result.is_err(),
+                "Truncated file at {truncate_at} bytes should fail"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_corrupted_salt_fails() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password";
+
+        // Generate and store mnemonic
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+        MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic, Some(password)).await?;
+
+        // Read the file
+        let mnemonic_path = temp_dir.path().join(".mnemonic");
+        let mut file_content = tokio::fs::read(&mnemonic_path).await?;
+
+        // Corrupt the salt (first SALT_SIZE bytes)
+        file_content[0] ^= 0xFF;
+        file_content[SALT_SIZE - 1] ^= 0xFF;
+
+        // Write back corrupted data
+        tokio::fs::write(&mnemonic_path, file_content).await?;
+
+        // Try to load - should fail (different salt = different key = decryption failure)
+        let result = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password)).await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Decryption failed"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_corrupted_nonce_fails() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password";
+
+        // Generate and store mnemonic
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+        MnemonicStore::store_mnemonic(temp_dir.path(), &mnemonic, Some(password)).await?;
+
+        // Read the file
+        let mnemonic_path = temp_dir.path().join(".mnemonic");
+        let mut file_content = tokio::fs::read(&mnemonic_path).await?;
+
+        // Corrupt the nonce (SALT_SIZE to SALT_SIZE + NONCE_SIZE)
+        file_content[SALT_SIZE] ^= 0xFF;
+        file_content[SALT_SIZE + NONCE_SIZE - 1] ^= 0xFF;
+
+        // Write back corrupted data
+        tokio::fs::write(&mnemonic_path, file_content).await?;
+
+        // Try to load - should fail (different nonce = decryption failure)
+        let result = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password)).await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Decryption failed"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mnemonic_invalid_utf8_in_ciphertext() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let password = "test-password";
+
+        // Create a mnemonic file with invalid UTF-8 after decryption
+        // We'll manually construct a file that will decrypt to invalid UTF-8
+        let salt_bytes: [u8; SALT_SIZE] = rand::random();
+        let nonce_bytes: [u8; NONCE_SIZE] = rand::random();
+
+        // Derive key
+        let key = MnemonicStore::derive_key(password, &salt_bytes)?;
+        let cipher = Aes256Gcm::new_from_slice(&key)?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        // Create invalid UTF-8 bytes (0xFF is not valid UTF-8)
+        let invalid_utf8 = vec![0xFF, 0xFE, 0xFD];
+
+        // Encrypt the invalid UTF-8
+        let ciphertext = cipher
+            .encrypt(nonce, invalid_utf8.as_slice())
+            .map_err(|e| anyhow::anyhow!("Encryption failed: {e}"))?;
+
+        // Construct file content
+        let mut file_content = Vec::new();
+        file_content.extend_from_slice(&salt_bytes);
+        file_content.extend_from_slice(&nonce_bytes);
+        file_content.extend_from_slice(&ciphertext);
+
+        // Write the file
+        let mnemonic_path = temp_dir.path().join(".mnemonic");
+        tokio::fs::write(&mnemonic_path, file_content).await?;
+
+        // Try to load - should fail with UTF-8 error
+        let result = MnemonicStore::load_mnemonic(temp_dir.path(), Some(password)).await;
+
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(
+            error_msg.contains("Failed to decode") || error_msg.contains("UTF-8"),
+            "Error should mention UTF-8 decoding failure, got: {error_msg}"
+        );
+
+        Ok(())
+    }
+}

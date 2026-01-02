@@ -84,7 +84,7 @@ impl LightningOperation {
         if now > expiry_time {
             let creation_secs = created_at
                 .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
+                .context("Invalid invoice creation timestamp")?
                 .as_secs();
             anyhow::bail!(
                 "Invoice has expired (created at {creation_secs}, expires after {expiry_secs} seconds)"

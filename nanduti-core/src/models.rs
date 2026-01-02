@@ -477,8 +477,39 @@ impl From<Expiry> for u64 {
 pub struct FederationId(String);
 
 impl FederationId {
+    /// Create a new FederationId without validation
+    /// Use for trusted sources (like fedimint-core parsed values) or when validation is not needed
     pub fn new(id: String) -> Self {
         Self(id)
+    }
+
+    /// Create a validated FederationId
+    /// Accepts either "*" as wildcard or a 64-character hex string (32 bytes)
+    /// Returns error if validation fails
+    pub fn new_validated(id: String) -> Result<Self> {
+        // Allow wildcard
+        if id == "*" {
+            return Ok(Self(id));
+        }
+
+        // Validate non-empty
+        if id.is_empty() {
+            anyhow::bail!("Federation ID cannot be empty");
+        }
+
+        // Validate hex characters and length (64 chars = 32 bytes)
+        if id.len() != 64 {
+            anyhow::bail!(
+                "Federation ID must be exactly 64 characters (32 bytes), got {} characters",
+                id.len()
+            );
+        }
+
+        if !id.chars().all(|c| c.is_ascii_hexdigit()) {
+            anyhow::bail!("Federation ID must contain only hexadecimal characters (0-9, a-f, A-F)");
+        }
+
+        Ok(Self(id))
     }
 
     pub fn as_str(&self) -> &str {

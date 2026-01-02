@@ -37,6 +37,7 @@ hex = { workspace = true }
 # Utils for IDs
 uuid = { workspace = true }
 rand = { workspace = true }
+lru = "0.12"
 
 # Lightning
 lightning-invoice = { workspace = true }

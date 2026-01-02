@@ -46,13 +46,11 @@ impl NwcKeys {
     /// Get the Nostr Keys object, initializing if needed
     pub fn get_keys(&mut self) -> Result<&Keys> {
         if self.keys.is_none() {
-            self.keys = Some(Keys::parse(&self.secret_key)?);
+            self.keys = Some(Keys::parse(&self.secret_key).context("Failed to parse secret key")?);
         }
-        // Safe to expect: keys is guaranteed to be Some after the if-block above
-        Ok(self
-            .keys
+        self.keys
             .as_ref()
-            .expect("keys should be initialized after parsing"))
+            .context("Keys not initialized after parsing")
     }
 }
 

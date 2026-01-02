@@ -59,6 +59,8 @@ impl FederationManager {
     }
 
     /// Create a new federation manager and load existing federations
+    /// This method is resilient to storage failures and will start with an empty
+    /// federation list if loading fails, rather than failing entirely
     pub async fn new_with_load(
         storage: Option<Arc<Storage>>,
         data_dir: Option<std::path::PathBuf>,
@@ -67,34 +69,57 @@ impl FederationManager {
 
         // Load existing federations from storage
         if let Some(storage) = &storage {
-            let stored_federations = storage.list_federations()?;
-            let mut federations = manager.federations.write().await;
+            match storage.list_federations() {
+                Ok(stored_federations) => {
+                    let mut federations = manager.federations.write().await;
 
-            for mut federation in stored_federations {
-                let federation_id = &federation.id;
-                let federation_name = &federation.name;
-                info!("Loading federation: {federation_id} ({federation_name})");
+                    for mut federation in stored_federations {
+                        let federation_id = &federation.id;
+                        let federation_name = &federation.name;
+                        info!("Loading federation: {federation_id} ({federation_name})");
 
-                // Re-initialize the client for each federation
-                match FedimintClientWrapper::new(&federation.invite_code, data_dir.as_deref()).await
-                {
-                    Ok(client) => {
-                        // Update balance
-                        federation.balance =
-                            client.get_balance().await.unwrap_or(Amount::from_msats(0));
-                        federation.status = FederationStatus::Online;
-                        federation.client = Some(Arc::new(client));
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to initialize client for federation {}: {e}",
-                            federation.id
-                        );
-                        federation.status = FederationStatus::Offline;
+                        // Re-initialize the client for each federation
+                        match FedimintClientWrapper::new(
+                            &federation.invite_code,
+                            data_dir.as_deref(),
+                        )
+                        .await
+                        {
+                            Ok(client) => {
+                                // Update balance with proper error handling
+                                match client.get_balance().await {
+                                    Ok(balance) => {
+                                        federation.balance = balance;
+                                        federation.status = FederationStatus::Online;
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            "Failed to get balance for federation {}: {e}",
+                                            federation.id
+                                        );
+                                        federation.balance = Amount::from_msats(0);
+                                        federation.status = FederationStatus::Degraded;
+                                    }
+                                }
+                                federation.client = Some(Arc::new(client));
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to initialize client for federation {}: {e}",
+                                    federation.id
+                                );
+                                federation.status = FederationStatus::Offline;
+                            }
+                        }
+
+                        federations.insert(federation.id.clone(), Arc::new(federation));
                     }
                 }
-
-                federations.insert(federation.id.clone(), Arc::new(federation));
+                Err(e) => {
+                    warn!(
+                        "Failed to load federations from storage: {e}. Starting with empty federation list."
+                    );
+                }
             }
         }
 
@@ -217,30 +242,58 @@ impl FederationManager {
     }
 
     /// Update federation balance
+    ///
+    /// # Concurrency
+    /// Uses atomic entry API to prevent race conditions. If the federation
+    /// is removed during the update, this method will fail with an error
+    /// instead of silently re-adding it.
     pub async fn update_balance(&self, federation_id: &FederationId) -> Result<Amount> {
         let mut federations = self.federations.write().await;
 
         let federation_arc = federations
-            .get_mut(federation_id)
+            .get(federation_id)
             .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
 
-        let federation = Arc::make_mut(federation_arc);
+        // Get the client before creating new federation to avoid clone overhead
+        let client = federation_arc
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow!("Federation {federation_id} client not initialized"))?;
 
-        if let Some(client) = &federation.client {
-            federation.balance = client.get_balance().await?;
+        // Fetch new balance
+        let new_balance = client.get_balance().await?;
 
-            // Update storage
-            if let Some(storage) = &self.storage {
-                storage.store_federation(federation)?;
-            }
+        // Create updated federation by cloning the old one and updating balance
+        let mut updated_federation = federation_arc.as_ref().clone();
+        updated_federation.balance = new_balance;
 
-            Ok(federation.balance)
-        } else {
-            bail!("Federation {federation_id} client not initialized");
+        // Replace the Arc entirely to avoid make_mut issues
+        let updated_arc = Arc::new(updated_federation);
+
+        // Persist to storage first before updating in-memory state
+        // This ensures we don't have inconsistency if persistence fails
+        if let Some(storage) = &self.storage {
+            storage.store_federation(&updated_arc)?;
         }
+
+        // Use entry API for atomic update - prevents race conditions
+        // If federation was removed during update, fail instead of re-adding
+        match federations.entry(federation_id.clone()) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.insert(updated_arc);
+            }
+            std::collections::hash_map::Entry::Vacant(_) => {
+                bail!("Federation {federation_id} was removed during balance update");
+            }
+        }
+
+        Ok(new_balance)
     }
 
     /// Update federation metrics
+    ///
+    /// # Concurrency
+    /// Uses atomic entry API to prevent race conditions. See `update_balance` for details.
     pub async fn update_metrics(
         &self,
         federation_id: &FederationId,
@@ -249,15 +302,30 @@ impl FederationManager {
         let mut federations = self.federations.write().await;
 
         let federation_arc = federations
-            .get_mut(federation_id)
+            .get(federation_id)
             .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
 
-        let federation = Arc::make_mut(federation_arc);
-        federation.metrics = metrics;
+        // Create updated federation by cloning the old one and updating metrics
+        let mut updated_federation = federation_arc.as_ref().clone();
+        updated_federation.metrics = metrics;
 
-        // Update storage
+        // Replace the Arc entirely to avoid make_mut issues
+        let updated_arc = Arc::new(updated_federation);
+
+        // Persist to storage first before updating in-memory state
+        // This ensures we don't have inconsistency if persistence fails
         if let Some(storage) = &self.storage {
-            storage.store_federation(federation)?;
+            storage.store_federation(&updated_arc)?;
+        }
+
+        // Use entry API for atomic update - prevents race conditions
+        match federations.entry(federation_id.clone()) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.insert(updated_arc);
+            }
+            std::collections::hash_map::Entry::Vacant(_) => {
+                bail!("Federation {federation_id} was removed during metrics update");
+            }
         }
 
         Ok(())
@@ -295,6 +363,7 @@ impl FederationManager {
         fedimint_core::invite_code::InviteCode,
     )> {
         let federation_id_str = invite_code.federation_id().to_string();
+        // Use plain new() since federation ID from fedimint-core is already validated
         let federation_id = FederationId::new(federation_id_str.clone());
 
         // Try to extract federation name from the invite code

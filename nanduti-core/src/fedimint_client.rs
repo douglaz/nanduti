@@ -13,7 +13,7 @@ use fedimint_ln_client::LightningClientModule;
 use fedimint_ln_common::{LightningGateway, LightningGatewayAnnouncement};
 use fedimint_meta_client::{common::MetaKey, MetaClientInit, MetaClientModule};
 use fedimint_mint_client::{MintClientInit, MintClientModule};
-use fedimint_wallet_client::WalletClientInit;
+use fedimint_wallet_client::{api::WalletFederationApi, WalletClientInit, WalletClientModule};
 use lightning_invoice::Bolt11Invoice;
 use rand::rngs::OsRng;
 use rand::seq::IteratorRandom;
@@ -152,17 +152,29 @@ impl FedimintClientWrapper {
 
     /// Load or generate mnemonic
     async fn load_or_generate_mnemonic(db_path: &Path) -> Result<Mnemonic> {
+        // Get password from environment variable
+        let password = std::env::var("NANDUTI_MNEMONIC_PASSWORD")
+            .context("NANDUTI_MNEMONIC_PASSWORD environment variable not set. This is required to encrypt wallet mnemonics securely.")?;
+
+        // Validate password is not empty
+        if password.is_empty() {
+            bail!("NANDUTI_MNEMONIC_PASSWORD cannot be empty");
+        }
+
         // Try to load existing mnemonic
-        if let Some(mnemonic) = MnemonicStore::load_mnemonic(db_path, None).await? {
+        if let Some(mnemonic) = MnemonicStore::load_mnemonic(db_path, Some(&password)).await? {
+            info!("Loaded existing mnemonic from secure storage");
             return Ok(mnemonic);
         }
 
         // Generate new mnemonic if none exists
+        info!("Generating new mnemonic - this will be encrypted with your password");
         let entropy = rand::random::<[u8; 16]>();
         let mnemonic = Mnemonic::from_entropy(&entropy)?;
 
-        // Store the new mnemonic
-        MnemonicStore::store_mnemonic(db_path, &mnemonic, None).await?;
+        // Store the new mnemonic with encryption
+        MnemonicStore::store_mnemonic(db_path, &mnemonic, Some(&password)).await?;
+        info!("Mnemonic securely stored with AES-256-GCM encryption");
 
         Ok(mnemonic)
     }
@@ -550,10 +562,23 @@ impl FedimintClientWrapper {
             .cloned()
             .unwrap_or_else(|| "bitcoin".to_string());
 
-        // Block height is not directly available from the federation modules
-        // Use a reasonable recent block height as default
-        // In a production system, this could be fetched from an external Bitcoin node
-        let block_height = 850000; // Recent mainnet block height
+        // Get wallet module to access its ID for API calls
+        let wallet_module = self
+            .client
+            .get_first_module::<WalletClientModule>()
+            .context("Wallet module not available")?;
+
+        // Fetch consensus block count from the federation wallet module API
+        // Block height = block count - 1 (since genesis block is height 0)
+        let block_count = self
+            .client
+            .api()
+            .with_module(wallet_module.id)
+            .fetch_consensus_block_count()
+            .await
+            .context("Failed to fetch consensus block count")?;
+
+        let block_height = block_count.saturating_sub(1);
 
         Ok(FederationInfo {
             network,

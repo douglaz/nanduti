@@ -75,8 +75,8 @@ pub async fn create_nwc_connection(
         ],
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
+            .map(|d| d.as_secs())
+            .unwrap_or(0), // Fallback to 0 if system time is before UNIX epoch
         last_used: None,
         total_spent_msats: 0,
     };

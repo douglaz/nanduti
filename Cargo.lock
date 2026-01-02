@@ -3987,6 +3987,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.7.0",
  "lightning-invoice",
+ "lru 0.12.5",
  "mockall",
  "nanduti-core",
  "nostr",
@@ -4032,6 +4033,7 @@ dependencies = [
  "sha2",
  "sled",
  "strum 0.26.3",
+ "tempfile",
  "tokio",
  "tracing",
  "urlencoding",
@@ -6196,6 +6198,19 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "tempfile"
+version = "3.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
+dependencies = [
+ "fastrand",
+ "getrandom 0.3.3",
+ "once_cell",
+ "rustix",
+ "windows-sys 0.60.2",
+]
 
 [[package]]
 name = "termcolor"
