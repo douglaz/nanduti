@@ -15,7 +15,7 @@ mod tests {
     use tower::ServiceExt;
 
     async fn create_mock_app_state() -> Arc<AppState> {
-        let storage = Arc::new(Storage::new(None).unwrap());
+        let storage = Arc::new(Storage::new(None, None).unwrap());
         let federation_manager = Arc::new(
             FederationManager::new_with_load(Some(storage.clone()), None)
                 .await

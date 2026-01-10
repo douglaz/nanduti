@@ -12,6 +12,7 @@ nanduti-core = { path = "../nanduti-core" }
 
 # Fedimint types
 fedimint-core = { workspace = true }
+fedimint-bip39 = { workspace = true }
 
 # Nostr
 nostr-sdk = { workspace = true }

@@ -272,17 +272,23 @@ impl NwcResponse {
         pubkey: String,
         network: String,
         block_height: u64,
+        block_hash: Option<String>,
         methods: Vec<String>,
         notifications: Vec<String>,
     ) -> Self {
+        // Use provided block_hash or default placeholder
+        // TODO: Fedimint wallet module should provide the actual block hash
+        let block_hash = block_hash.unwrap_or_else(|| {
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
+        });
+
         let info_result = GetInfoResult {
             alias: "Nanduti".to_string(),
             color: "#FF6B00".to_string(),
             pubkey: PublicKey::new(pubkey),
             network,
             block_height,
-            block_hash: "000000000000000000000000000000000000000000000000000000000000000"
-                .to_string(),
+            block_hash,
             methods,
             notifications,
         };

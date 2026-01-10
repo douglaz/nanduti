@@ -1,8 +1,11 @@
 //! Application state for the server
 
-use anyhow::Result;
-use nanduti_core::{federation::FederationManager, storage::Storage};
+use anyhow::{Context, Result};
+use nanduti_core::{
+    federation::FederationManager, mnemonic_store::MnemonicStore, storage::Storage,
+};
 use std::sync::Arc;
+use tracing::info;
 
 use crate::{FederationRouter, NostrClient, NwcHandler, RoutingStrategy};
 
@@ -32,8 +35,36 @@ impl AppState {
         relays: Vec<String>,
         routing_strategy: RoutingStrategy,
     ) -> Result<Self> {
-        // Create storage
-        let storage = Arc::new(Storage::new(data_dir.as_deref())?);
+        // Derive storage encryption key from mnemonic if data_dir is set
+        let encryption_key = if let Some(ref dir) = data_dir {
+            // Get password from environment variable
+            let password = std::env::var("NANDUTI_MNEMONIC_PASSWORD")
+                .context("NANDUTI_MNEMONIC_PASSWORD environment variable not set")?;
+
+            // Load or generate mnemonic
+            let mnemonic =
+                if let Some(m) = MnemonicStore::load_mnemonic(dir, Some(&password)).await? {
+                    info!("Loaded existing mnemonic for storage encryption");
+                    m
+                } else {
+                    // Generate new mnemonic
+                    info!("Generating new mnemonic for storage encryption");
+                    let entropy = rand::random::<[u8; 16]>();
+                    let mnemonic = fedimint_bip39::Mnemonic::from_entropy(&entropy)?;
+                    MnemonicStore::store_mnemonic(dir, &mnemonic, Some(&password)).await?;
+                    mnemonic
+                };
+
+            // Derive storage encryption key
+            let key = MnemonicStore::derive_storage_key(&mnemonic)?;
+            info!("Derived storage encryption key from mnemonic");
+            Some(key)
+        } else {
+            None
+        };
+
+        // Create storage with encryption key
+        let storage = Arc::new(Storage::new(data_dir.as_deref(), encryption_key)?);
 
         // Create and load federation manager with existing federations
         let federation_manager = Arc::new(

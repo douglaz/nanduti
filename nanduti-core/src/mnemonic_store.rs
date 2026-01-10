@@ -17,6 +17,8 @@ use argon2::{
     Argon2, ParamsBuilder, Version,
 };
 use fedimint_bip39::Mnemonic;
+use hkdf::Hkdf;
+use sha2::Sha256;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -240,6 +242,38 @@ impl MnemonicStore {
 
         let mut key = [0u8; 32];
         key.copy_from_slice(key_bytes);
+
+        Ok(key)
+    }
+
+    /// Derive a storage encryption key from a mnemonic
+    ///
+    /// Uses HKDF-SHA256 to derive a 256-bit key from the mnemonic's entropy.
+    /// This key is deterministic - the same mnemonic always produces the same key.
+    ///
+    /// # Security
+    /// - Uses HKDF (RFC 5869) for secure key derivation
+    /// - Info string "nanduti-storage-v1" provides domain separation
+    /// - No salt needed since mnemonic entropy is already high-entropy
+    ///
+    /// # Arguments
+    /// - `mnemonic`: The BIP39 mnemonic to derive the key from
+    ///
+    /// # Returns
+    /// 32-byte key suitable for AES-256-GCM encryption
+    pub fn derive_storage_key(mnemonic: &Mnemonic) -> Result<[u8; 32]> {
+        // Get mnemonic as input key material
+        // Using the mnemonic string as IKM (it contains ~128-256 bits of entropy)
+        let ikm = mnemonic.to_string();
+
+        // Create HKDF instance with SHA-256
+        // No salt needed - mnemonic already has sufficient entropy
+        let hk = Hkdf::<Sha256>::new(None, ikm.as_bytes());
+
+        // Derive key with domain-specific info string for separation
+        let mut key = [0u8; 32];
+        hk.expand(b"nanduti-storage-v1", &mut key)
+            .map_err(|_| anyhow::anyhow!("HKDF key expansion failed"))?;
 
         Ok(key)
     }
@@ -664,6 +698,46 @@ mod tests {
             "Error should mention UTF-8 decoding failure, got: {error_msg}"
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_derive_storage_key_deterministic() -> Result<()> {
+        // Same mnemonic should always produce same key
+        let entropy = [42u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+
+        let key1 = MnemonicStore::derive_storage_key(&mnemonic)?;
+        let key2 = MnemonicStore::derive_storage_key(&mnemonic)?;
+
+        assert_eq!(key1, key2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_derive_storage_key_different_mnemonics() -> Result<()> {
+        // Different mnemonics should produce different keys
+        let entropy1 = [1u8; 16];
+        let entropy2 = [2u8; 16];
+
+        let mnemonic1 = Mnemonic::from_entropy(&entropy1)?;
+        let mnemonic2 = Mnemonic::from_entropy(&entropy2)?;
+
+        let key1 = MnemonicStore::derive_storage_key(&mnemonic1)?;
+        let key2 = MnemonicStore::derive_storage_key(&mnemonic2)?;
+
+        assert_ne!(key1, key2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_derive_storage_key_length() -> Result<()> {
+        // Key should be exactly 32 bytes for AES-256
+        let entropy = [0u8; 16];
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+
+        let key = MnemonicStore::derive_storage_key(&mnemonic)?;
+        assert_eq!(key.len(), 32);
         Ok(())
     }
 }

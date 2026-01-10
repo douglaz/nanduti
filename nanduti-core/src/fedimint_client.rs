@@ -145,7 +145,8 @@ impl FedimintClientWrapper {
         registry.attach(fedimint_ln_client::LightningClientInit::default());
         registry.attach(WalletClientInit::default());
         registry.attach(MetaClientInit);
-        // Note: fedimint_lnv2_client doesn't exist in 0.8.1
+        // TODO: Enable LNv2 when Fedimint supports it
+        // Track progress: https://github.com/fedimint/fedimint/issues/5492
         // registry.attach(fedimint_lnv2_client::LightningClientInit::default());
         registry
     }

@@ -86,13 +86,14 @@ impl NostrClient {
     pub async fn publish_info_event(&self) -> Result<()> {
         use nanduti_core::nwc_protocol::{NwcMethod, NwcNotificationType};
 
+        // Note: pay_keysend is not advertised because Fedimint doesn't support it yet
         let capabilities = [
             NwcMethod::PayInvoice.to_string(),
             NwcMethod::MakeInvoice.to_string(),
             NwcMethod::GetBalance.to_string(),
             NwcMethod::ListTransactions.to_string(),
             NwcMethod::GetInfo.to_string(),
-            NwcMethod::PayKeysend.to_string(),
+            NwcMethod::LookupInvoice.to_string(),
         ];
 
         let notifications = vec![

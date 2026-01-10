@@ -2,6 +2,7 @@
 //! Provides AI assistants with access to NWC (Nostr Wallet Connect) functionality
 
 use anyhow::Result;
+use lightning_invoice::Bolt11Invoice;
 use rmcp::{
     handler::server::ServerHandler,
     model::{
@@ -37,7 +38,7 @@ impl Default for McpServerConfig {
             api_port: std::env::var("API_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
-                .unwrap_or(8080),
+                .unwrap_or(3517),
             api_key: std::env::var("API_KEY").ok(),
         }
     }
@@ -710,23 +711,82 @@ impl NandutiMcpServer {
 // Implement decoding tools
 impl NandutiMcpServer {
     async fn decode_invoice(&self, request: DecodeInvoiceRequest) -> CallToolResult {
-        // Simple invoice decoding without parsing library
-        // Just validate it starts with ln prefix
-        let invoice = request.invoice.to_lowercase();
-        if !invoice.starts_with("lnbc")
-            && !invoice.starts_with("lntb")
-            && !invoice.starts_with("lnbcrt")
-        {
-            return CallToolResult::error(vec![Content::text(
-                "Invalid invoice: must start with lnbc, lntb, or lnbcrt",
-            )]);
-        }
+        // Parse the BOLT11 invoice using lightning-invoice crate
+        let invoice = match request.invoice.parse::<Bolt11Invoice>() {
+            Ok(inv) => inv,
+            Err(e) => {
+                return CallToolResult::error(vec![Content::text(format!(
+                    "Invalid BOLT11 invoice: {e}"
+                ))]);
+            }
+        };
 
-        // Return basic info
+        // Extract payment hash
+        let payment_hash = hex::encode::<&[u8]>(invoice.payment_hash().as_ref());
+
+        // Extract amount (if specified)
+        let amount_msats = invoice.amount_milli_satoshis();
+
+        // Extract description using the ref-based API
+        let description = match invoice.description() {
+            lightning_invoice::Bolt11InvoiceDescriptionRef::Direct(desc) => Some(desc.to_string()),
+            lightning_invoice::Bolt11InvoiceDescriptionRef::Hash(hash) => Some(format!(
+                "description_hash:{}",
+                hex::encode::<&[u8]>(hash.0.as_ref())
+            )),
+        };
+
+        // Extract expiry
+        let expiry_secs = invoice.expiry_time().as_secs();
+
+        // Extract timestamp (Duration since UNIX epoch)
+        let created_at = invoice.duration_since_epoch().as_secs();
+
+        // Extract payee pubkey - get_payee_pub_key returns the node pubkey
+        let payee_pubkey = invoice.get_payee_pub_key().to_string();
+
+        // Determine network
+        let network_str = invoice.network().to_string();
+        let network = match network_str.as_str() {
+            "bitcoin" => "mainnet",
+            "testnet" => "testnet",
+            "signet" => "signet",
+            "regtest" => "regtest",
+            _ => &network_str,
+        };
+
+        // Extract routing hints (if any)
+        let route_hints: Vec<_> = invoice
+            .route_hints()
+            .iter()
+            .map(|hint| {
+                hint.0
+                    .iter()
+                    .map(|hop| {
+                        serde_json::json!({
+                            "pubkey": hop.src_node_id.to_string(),
+                            "short_channel_id": hop.short_channel_id,
+                            "base_fee_msat": hop.fees.base_msat,
+                            "proportional_fee_ppm": hop.fees.proportional_millionths,
+                            "cltv_expiry_delta": hop.cltv_expiry_delta,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        // Build response
         let response = serde_json::json!({
             "invoice": request.invoice,
-            "network": if invoice.starts_with("lnbc") { "mainnet" } else if invoice.starts_with("lntb") { "testnet" } else { "regtest" },
-            "note": "Full invoice parsing not implemented yet"
+            "network": network,
+            "payment_hash": payment_hash,
+            "amount_msats": amount_msats,
+            "description": description,
+            "expiry_secs": expiry_secs,
+            "created_at": created_at,
+            "payee_pubkey": payee_pubkey,
+            "route_hints": route_hints,
+            "is_expired": invoice.is_expired(),
         });
 
         CallToolResult::success(vec![Content::text(
@@ -735,25 +795,65 @@ impl NandutiMcpServer {
     }
 
     async fn decode_lnurl(&self, request: DecodeLnurlRequest) -> CallToolResult {
-        // Decode LNURL - simple version for MVP
+        // Decode LNURL using bech32
         let lnurl = request.lnurl.to_lowercase();
 
-        // Just check if it's a valid LNURL format
+        // Check if it's a valid LNURL format (bech32 encoded)
         if !lnurl.starts_with("lnurl") {
             return CallToolResult::error(vec![Content::text(
                 "Invalid LNURL: must start with 'lnurl'",
             )]);
         }
 
-        // For now, return a simplified response
-        let response = serde_json::json!({
-            "lnurl": request.lnurl,
-            "note": "Full LNURL decoding not implemented in MCP server yet"
-        });
+        // Decode the bech32 to get the URL
+        // bech32 0.11 uses a different API - decode returns (Hrp, Vec<u8>)
+        match bech32::decode(&lnurl) {
+            Ok((hrp, data)) => {
+                if hrp.as_str() != "lnurl" {
+                    return CallToolResult::error(vec![Content::text(
+                        "Invalid LNURL: human-readable part must be 'lnurl'",
+                    )]);
+                }
 
-        CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap_or_else(|e| e.to_string()),
-        )])
+                // data is already the decoded bytes in bech32 0.11
+                // Convert to UTF-8 string (the URL)
+                let url = match String::from_utf8(data) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        return CallToolResult::error(vec![Content::text(format!(
+                            "Invalid LNURL: URL is not valid UTF-8: {e}"
+                        ))]);
+                    }
+                };
+
+                // Determine LNURL type based on URL pattern
+                let lnurl_type = if url.contains("/lnurlp/") || url.contains("/pay") {
+                    "pay"
+                } else if url.contains("/lnurlw/") || url.contains("/withdraw") {
+                    "withdraw"
+                } else if url.contains("/lnurl-auth") || url.contains("/auth") {
+                    "auth"
+                } else if url.contains("/lnurlc/") || url.contains("/channel") {
+                    "channel"
+                } else {
+                    "unknown"
+                };
+
+                let response = serde_json::json!({
+                    "lnurl": request.lnurl,
+                    "decoded_url": url,
+                    "type": lnurl_type,
+                    "note": "Fetch the URL to get full LNURL details"
+                });
+
+                CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap_or_else(|e| e.to_string()),
+                )])
+            }
+            Err(e) => CallToolResult::error(vec![Content::text(format!(
+                "Failed to decode LNURL bech32: {e}"
+            ))]),
+        }
     }
 
     async fn get_info(&self) -> CallToolResult {

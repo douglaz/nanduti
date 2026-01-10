@@ -46,6 +46,7 @@ bech32 = { workspace = true }
 sha2 = { workspace = true }
 aes-gcm = { workspace = true }
 argon2 = { workspace = true }
+hkdf = { workspace = true }
 
 # Nostr
 nostr-sdk = { workspace = true }
