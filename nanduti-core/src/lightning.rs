@@ -73,7 +73,10 @@ impl LightningOperation {
         let created_at = invoice
             .created_at
             .context("Invoice missing creation timestamp")?;
-        let expiry_secs = invoice.expiry.map(|e| e.as_secs()).unwrap_or(3600); // Default 3600 seconds
+        let expiry_secs = invoice
+            .expiry
+            .map(|e| e.as_secs())
+            .unwrap_or(crate::constants::DEFAULT_INVOICE_EXPIRY_SECS);
 
         let now = SystemTime::now();
 

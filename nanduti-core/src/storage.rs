@@ -590,7 +590,7 @@ impl Storage {
 
         // Calculate day boundaries (00:00:00 to 23:59:59 UTC)
         let day_start = day_timestamp;
-        let day_end = day_start + 86400; // 24 hours in seconds
+        let day_end = day_start + crate::constants::SECONDS_PER_DAY;
 
         if let Some(tree) = &self.transactions {
             for item in tree.iter() {

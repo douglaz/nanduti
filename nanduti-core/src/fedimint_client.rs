@@ -36,7 +36,6 @@ pub struct FedimintClientWrapper {
     client: ClientHandleArc,
     federation_id: FederationId,
     federation_name: String,
-    #[allow(dead_code)]
     db_path: PathBuf,
 }
 
@@ -178,6 +177,11 @@ impl FedimintClientWrapper {
         info!("Mnemonic securely stored with AES-256-GCM encryption");
 
         Ok(mnemonic)
+    }
+
+    /// Get the database path for this federation
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
     }
 
     /// Get current balance
@@ -456,7 +460,7 @@ impl FedimintClientWrapper {
             .create_bolt11_invoice(
                 fedimint_amount,
                 invoice_description,
-                Some(expiry.unwrap_or(3600)),
+                Some(expiry.unwrap_or(crate::constants::DEFAULT_INVOICE_EXPIRY_SECS)),
                 (),      // extra_meta
                 gateway, // gateway for routing hints
             )
@@ -591,6 +595,9 @@ impl FedimintClientWrapper {
     }
 
     /// Estimate fee for a payment
+    ///
+    /// Attempts to query the selected gateway for actual fee schedule.
+    /// Falls back to default values if no gateway is available.
     pub async fn estimate_fee(&self, amount: Amount) -> Result<Amount> {
         // Verify lightning module is available
         let _ln_module = self
@@ -598,18 +605,47 @@ impl FedimintClientWrapper {
             .get_first_module::<LightningClientModule>()
             .context("Lightning module not available")?;
 
-        // Try to get gateway fee schedule
-        // Gateway fees typically consist of:
-        // - Base fee (fixed amount per payment)
-        // - Proportional fee (percentage of payment amount)
-
-        // Use default gateway fee structure
-        // These are typical values for Lightning gateways
-        // In a full implementation, we would query the gateway for actual fees
-        let base_fee_msats = 1000; // 1 sat base fee
-        let proportional_fee_ppm = 2500; // 0.25% (2500 parts per million)
+        // Try to get actual fees from selected gateway
+        let (base_fee_msats, proportional_fee_ppm) = match self.select_gateway().await {
+            Ok(Some(gateway)) => {
+                // Use actual gateway fees
+                // base_msat is in millisatoshis
+                // proportional_millionths is per million (divide by 1,000,000 for ratio)
+                // We convert proportional_millionths to ppm for our calculation
+                let base = gateway.fees.base_msat as u64;
+                let proportional = gateway.fees.proportional_millionths as u64;
+                info!(
+                    "Using gateway fees: base={base}msat, proportional={proportional}ppm for federation {name}",
+                    name = self.federation_name
+                );
+                (base, proportional)
+            }
+            Ok(None) => {
+                // No gateway available, use defaults
+                info!(
+                    "No gateway available, using default fees for federation {name}",
+                    name = self.federation_name
+                );
+                (
+                    crate::constants::DEFAULT_BASE_FEE_MSATS,
+                    crate::constants::DEFAULT_PROPORTIONAL_FEE_PPM,
+                )
+            }
+            Err(e) => {
+                // Error querying gateway, use defaults
+                info!(
+                    "Failed to query gateway fees ({e}), using defaults for federation {name}",
+                    name = self.federation_name
+                );
+                (
+                    crate::constants::DEFAULT_BASE_FEE_MSATS,
+                    crate::constants::DEFAULT_PROPORTIONAL_FEE_PPM,
+                )
+            }
+        };
 
         // Calculate total fee
+        // proportional_fee = amount * (proportional_fee_ppm / 1,000,000)
         let proportional_fee = (amount.as_msats() * proportional_fee_ppm) / 1_000_000;
         let total_fee = base_fee_msats + proportional_fee;
 

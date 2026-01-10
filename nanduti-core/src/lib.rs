@@ -1,5 +1,6 @@
 //! Core library for multi-federation Fedimint wallet with NWC support
 
+pub mod constants;
 pub mod federation;
 pub mod fedimint_client;
 pub mod keys;

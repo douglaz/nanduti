@@ -2,6 +2,7 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use nanduti_core::{
+    constants::SECONDS_PER_DAY,
     federation::{FederationManager, FederationStatus},
     lightning::LightningOperation,
     models::{
@@ -185,7 +186,7 @@ impl NwcHandler {
                     .duration_since(std::time::UNIX_EPOCH)
                     .context("System clock error: time is before UNIX epoch")?
                     .as_secs();
-                let day_start = (now / 86400) * 86400; // Round down to start of day
+                let day_start = (now / SECONDS_PER_DAY) * SECONDS_PER_DAY; // Round down to start of day
 
                 let daily_spent = storage
                     .get_daily_spent(&connection.id, day_start)
@@ -465,17 +466,47 @@ impl NwcHandler {
 
         let mut all_transactions = Vec::new();
 
-        // Get transactions from all federations
+        // Get transactions from all federations (get more than limit to allow for filtering)
         if let Some(storage) = &self.storage {
             for federation in self.federation_manager.list_federations().await {
-                let transactions =
-                    storage.get_federation_transactions(&federation.id, params.limit)?;
+                let transactions = storage.get_federation_transactions(&federation.id, None)?;
                 all_transactions.extend(transactions);
             }
         }
 
+        // Filter by timestamp range (from/until)
+        if let Some(from_ts) = &params.from {
+            all_transactions.retain(|tx| tx.created_at >= *from_ts);
+        }
+        if let Some(until_ts) = &params.until {
+            all_transactions.retain(|tx| tx.created_at <= *until_ts);
+        }
+
+        // Filter by transaction type (incoming/outgoing)
+        if let Some(tx_type) = &params.transaction_type {
+            all_transactions.retain(|tx| match tx_type.as_str() {
+                "incoming" => tx.transaction_type == TransactionType::Incoming,
+                "outgoing" => tx.transaction_type == TransactionType::Outgoing,
+                _ => true, // Unknown type, don't filter
+            });
+        }
+
+        // Filter by unpaid status (pending transactions)
+        if let Some(true) = params.unpaid {
+            all_transactions.retain(|tx| tx.state == TransactionState::Pending);
+        }
+
         // Sort by created_at descending
         all_transactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        // Apply offset (skip first N transactions)
+        if let Some(offset) = params.offset {
+            if offset < all_transactions.len() {
+                all_transactions = all_transactions.split_off(offset);
+            } else {
+                all_transactions.clear();
+            }
+        }
 
         // Apply limit
         if let Some(limit) = params.limit {
@@ -612,7 +643,7 @@ impl NwcHandler {
                     .duration_since(std::time::UNIX_EPOCH)
                     .context("System clock error: time is before UNIX epoch")?
                     .as_secs();
-                let day_start = (now / 86400) * 86400; // Round down to start of day
+                let day_start = (now / SECONDS_PER_DAY) * SECONDS_PER_DAY; // Round down to start of day
 
                 let daily_spent = storage
                     .get_daily_spent(&connection.id, day_start)

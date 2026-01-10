@@ -106,7 +106,8 @@ struct ServeArgs {
     )]
     federations: Vec<String>,
 
-    /// Nostr relays to connect to
+    /// Nostr relays to connect to (can specify multiple)
+    /// Default: wss://relay.damus.io (see constants::DEFAULT_RELAY_URL)
     #[arg(
         long = "relay",
         value_name = "URL",
@@ -240,7 +241,8 @@ struct NewConnectionArgs {
     #[arg(long, default_value = "*")]
     federations: String,
 
-    /// Nostr relays to use for this connection
+    /// Nostr relays to use for this connection (can specify multiple)
+    /// Default: wss://relay.damus.io (see constants::DEFAULT_RELAY_URL)
     #[arg(
         long = "relay",
         value_name = "URL",
@@ -608,7 +610,7 @@ async fn new_connection(args: NewConnectionArgs, api_url: &str) -> Result<()> {
     let client = api_client::ApiClient::new(api_url.to_string())?;
 
     let relays = if args.relays.is_empty() {
-        vec!["wss://relay.damus.io".to_string()]
+        vec![nanduti_core::constants::DEFAULT_RELAY_URL.to_string()]
     } else {
         args.relays.clone()
     };
@@ -686,7 +688,7 @@ async fn list_transactions(args: ListTransactionsArgs, api_url: &str) -> Result<
     let client = api_client::ApiClient::new(api_url.to_string())?;
     let federation_id = args.federation.map(FederationId::new);
     let transactions = client
-        .list_transactions(federation_id, Some(args.limit))
+        .list_transactions(federation_id, Some(args.limit), None)
         .await?;
 
     match args.format {

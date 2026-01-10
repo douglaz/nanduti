@@ -25,8 +25,13 @@ use std::str::FromStr;
 /// Configuration for the MCP server
 #[derive(Debug, Clone)]
 pub struct McpServerConfig {
+    /// Hostname of the Nanduti API server
     pub api_host: String,
+    /// Port of the Nanduti API server
     pub api_port: u16,
+    /// API key for authentication (reserved for future use).
+    /// Set via API_KEY environment variable.
+    /// Will be used for API authentication when that feature is implemented.
     #[allow(dead_code)]
     pub api_key: Option<String>,
 }
@@ -91,7 +96,6 @@ pub struct ListTransactionsRequest {
     #[schemars(description = "Maximum number of transactions to return")]
     pub limit: Option<u32>,
     #[schemars(description = "Offset for pagination")]
-    #[allow(dead_code)]
     pub offset: Option<u32>,
 }
 
@@ -557,11 +561,11 @@ impl NandutiMcpServer {
             }
         };
 
-        // API client's list_transactions method signature is different
         let federation_id = request.federation_id.map(FederationId::new);
         let limit = request.limit.map(|l| l as usize);
+        let offset = request.offset.map(|o| o as usize);
 
-        match client.list_transactions(federation_id, limit).await {
+        match client.list_transactions(federation_id, limit, offset).await {
             Ok(transactions) => CallToolResult::success(vec![Content::text(
                 serde_json::to_string_pretty(&transactions).unwrap_or_else(|e| e.to_string()),
             )]),

@@ -188,6 +188,7 @@ impl ApiClient {
         &self,
         federation_id: Option<FederationId>,
         limit: Option<usize>,
+        offset: Option<usize>,
     ) -> Result<Vec<TransactionInfo>> {
         let base_url = &self.base_url;
         let mut url = format!("{base_url}/api/v1/transactions");
@@ -198,6 +199,9 @@ impl ApiClient {
         }
         if let Some(limit) = limit {
             params.push(format!("limit={limit}"));
+        }
+        if let Some(offset) = offset {
+            params.push(format!("offset={offset}"));
         }
 
         if !params.is_empty() {
