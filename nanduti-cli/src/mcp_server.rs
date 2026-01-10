@@ -2,6 +2,7 @@
 //! Provides AI assistants with access to NWC (Nostr Wallet Connect) functionality
 
 use anyhow::Result;
+use bitcoin::Network;
 use lightning_invoice::Bolt11Invoice;
 use rmcp::{
     handler::server::ServerHandler,
@@ -750,13 +751,12 @@ impl NandutiMcpServer {
         let payee_pubkey = invoice.get_payee_pub_key().to_string();
 
         // Determine network
-        let network_str = invoice.network().to_string();
-        let network = match network_str.as_str() {
-            "bitcoin" => "mainnet",
-            "testnet" => "testnet",
-            "signet" => "signet",
-            "regtest" => "regtest",
-            _ => &network_str,
+        let network = match invoice.network() {
+            Network::Bitcoin => "mainnet",
+            Network::Testnet => "testnet",
+            Network::Signet => "signet",
+            Network::Regtest => "regtest",
+            _ => "unknown",
         };
 
         // Extract routing hints (if any)

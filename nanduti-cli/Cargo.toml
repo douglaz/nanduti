@@ -37,6 +37,7 @@ bech32 = { workspace = true }
 
 # Lightning
 lightning-invoice = { workspace = true }
+bitcoin = { workspace = true }
 
 # HTTP client for API mode
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
