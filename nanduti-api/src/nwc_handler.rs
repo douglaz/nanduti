@@ -6,8 +6,8 @@ use nanduti_core::{
     federation::{FederationManager, FederationStatus},
     lightning::LightningOperation,
     models::{
-        Description, PaymentHash, Timestamp, Transaction, TransactionId, TransactionState,
-        TransactionType,
+        Bolt11String, Description, PaymentHash, Timestamp, Transaction, TransactionId,
+        TransactionState, TransactionType,
     },
     nwc_protocol::{
         ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcNotificationType,
@@ -210,7 +210,7 @@ impl NwcHandler {
 
             // 5. Check for duplicate payment (same payment hash already settled)
             let existing_txs = storage
-                .get_transactions_by_payment_hash(invoice.payment_hash.as_str())
+                .get_transactions_by_payment_hash(&invoice.payment_hash)
                 .context("Failed to check for duplicate payments")?;
 
             for tx in existing_txs {
@@ -830,7 +830,7 @@ impl NwcHandler {
         let transaction = if let Some(hash) = payment_hash {
             if let Some(storage) = &self.storage {
                 storage
-                    .get_transaction_by_payment_hash(&hash)
+                    .get_transaction_by_payment_hash(&PaymentHash::new(hash))
                     .map_err(|error| anyhow::anyhow!("Failed to lookup transaction: {error}"))?
             } else {
                 None
@@ -838,7 +838,7 @@ impl NwcHandler {
         } else if let Some(inv) = invoice {
             if let Some(storage) = &self.storage {
                 storage
-                    .get_transaction_by_invoice(&inv)
+                    .get_transaction_by_invoice(&Bolt11String::new(inv))
                     .map_err(|error| anyhow::anyhow!("Failed to lookup transaction: {error}"))?
             } else {
                 None

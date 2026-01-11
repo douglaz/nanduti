@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::federation::Federation;
-use crate::models::{FederationId, PublicKey, Transaction};
+use crate::models::{Bolt11String, FederationId, PaymentHash, PublicKey, Transaction};
 
 /// Nonce size for AES-GCM (12 bytes / 96 bits)
 const NONCE_SIZE: usize = 12;
@@ -417,7 +417,10 @@ impl Storage {
     ///
     /// # Performance
     /// Uses secondary index for O(1) lookup by payment hash.
-    pub fn get_transactions_by_payment_hash(&self, payment_hash: &str) -> Result<Vec<Transaction>> {
+    pub fn get_transactions_by_payment_hash(
+        &self,
+        payment_hash: &PaymentHash,
+    ) -> Result<Vec<Transaction>> {
         let mut transactions = Vec::new();
 
         // Try to use index first
@@ -440,7 +443,7 @@ impl Storage {
                 let (_, value) = item.context("Failed to read transaction item")?;
                 let transaction = self.deserialize_transaction(&value)?;
 
-                if transaction.payment_hash.as_str() == payment_hash {
+                if &transaction.payment_hash == payment_hash {
                     transactions.push(transaction);
                 }
             }
@@ -461,7 +464,7 @@ impl Storage {
     /// Uses secondary index for O(1) lookup.
     pub fn get_transaction_by_payment_hash(
         &self,
-        payment_hash: &str,
+        payment_hash: &PaymentHash,
     ) -> Result<Option<Transaction>> {
         let transactions = self.get_transactions_by_payment_hash(payment_hash)?;
         Ok(transactions.into_iter().next())
@@ -471,11 +474,14 @@ impl Storage {
     ///
     /// # Performance
     /// Uses secondary index for O(1) lookup by invoice string.
-    pub fn get_transaction_by_invoice(&self, invoice: &str) -> Result<Option<Transaction>> {
+    pub fn get_transaction_by_invoice(
+        &self,
+        invoice: &Bolt11String,
+    ) -> Result<Option<Transaction>> {
         // Try to use index first
         if let (Some(idx), Some(tree)) = (&self.tx_by_invoice, &self.transactions) {
             if let Some(tx_id_bytes) = idx
-                .get(invoice.as_bytes())
+                .get(invoice.as_str().as_bytes())
                 .context("Failed to read invoice index")?
             {
                 if let Some(data) = tree
@@ -496,7 +502,7 @@ impl Storage {
                 let transaction = self.deserialize_transaction(&value)?;
 
                 if let Some(tx_invoice) = &transaction.invoice {
-                    if tx_invoice.as_str() == invoice {
+                    if tx_invoice == invoice {
                         return Ok(Some(transaction));
                     }
                 }
@@ -738,7 +744,8 @@ mod tests {
         let tx = create_test_transaction("tx-1");
         storage.store_transaction(&tx)?;
 
-        let retrieved = storage.get_transactions_by_payment_hash("abc123")?;
+        let retrieved =
+            storage.get_transactions_by_payment_hash(&PaymentHash::new("abc123".to_string()))?;
         assert_eq!(retrieved.len(), 1);
         assert_eq!(retrieved[0].id.as_str(), "tx-1");
 
@@ -757,7 +764,8 @@ mod tests {
         let tx = create_test_transaction("tx-encrypted");
         storage.store_transaction(&tx)?;
 
-        let retrieved = storage.get_transactions_by_payment_hash("abc123")?;
+        let retrieved =
+            storage.get_transactions_by_payment_hash(&PaymentHash::new("abc123".to_string()))?;
         assert_eq!(retrieved.len(), 1);
         assert_eq!(retrieved[0].id.as_str(), "tx-encrypted");
         assert_eq!(retrieved[0].amount.as_sats(), 1000);
@@ -780,7 +788,8 @@ mod tests {
         // Try to read without encryption key - should fail to deserialize
         {
             let storage = Storage::new(Some(temp_dir.path()), None)?;
-            let result = storage.get_transactions_by_payment_hash("abc123");
+            let result =
+                storage.get_transactions_by_payment_hash(&PaymentHash::new("abc123".to_string()));
             assert!(
                 result.is_err(),
                 "Should fail to read encrypted data without key"
@@ -806,7 +815,8 @@ mod tests {
         // Try to read with key2 - should fail
         {
             let storage = Storage::new(Some(temp_dir.path()), Some(key2))?;
-            let result = storage.get_transactions_by_payment_hash("abc123");
+            let result =
+                storage.get_transactions_by_payment_hash(&PaymentHash::new("abc123".to_string()));
             assert!(result.is_err(), "Should fail to decrypt with wrong key");
         }
 
@@ -842,7 +852,8 @@ mod tests {
 
         // In memory mode, transactions aren't actually stored
         // (because self.transactions is None)
-        let retrieved = storage.get_transactions_by_payment_hash("abc123")?;
+        let retrieved =
+            storage.get_transactions_by_payment_hash(&PaymentHash::new("abc123".to_string()))?;
         assert_eq!(retrieved.len(), 0);
 
         Ok(())
@@ -857,12 +868,14 @@ mod tests {
         storage.store_transaction(&tx)?;
 
         // Should find by invoice using index
-        let result = storage.get_transaction_by_invoice("lnbc1...")?;
+        let result =
+            storage.get_transaction_by_invoice(&Bolt11String::new("lnbc1...".to_string()))?;
         assert!(result.is_some());
         assert_eq!(result.unwrap().id.as_str(), "tx-invoice-test");
 
         // Non-existent invoice should return None
-        let not_found = storage.get_transaction_by_invoice("lnbc_nonexistent")?;
+        let not_found = storage
+            .get_transaction_by_invoice(&Bolt11String::new("lnbc_nonexistent".to_string()))?;
         assert!(not_found.is_none());
 
         Ok(())
