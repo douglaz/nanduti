@@ -11,12 +11,11 @@ use nanduti_core::{
     },
     nwc_protocol::{
         ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcNotificationType,
-        NwcRequestContext, NwcResponse, PayInvoiceParams, PayKeysendParams,
+        NwcRequestContext, NwcResponse, ParsedMethod, PayInvoiceParams, PayKeysendParams,
     },
     storage::Storage,
 };
 use serde_json::Value;
-use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid;
@@ -51,31 +50,34 @@ impl NwcHandler {
     /// Handle a NWC request with sender context
     pub async fn handle_request(&self, context: NwcRequestContext) -> Result<NwcResponse> {
         let sender_pubkey = &context.sender_pubkey;
-        let method_str = &context.request.method;
-        debug!("Handling NWC request: {method_str} from {sender_pubkey}");
-
-        // Parse the method string into enum using FromStr trait
-        let method = NwcMethod::from_str(method_str);
+        let method = &context.request.method;
+        debug!(
+            "Handling NWC request: {} from {sender_pubkey}",
+            method.as_str()
+        );
 
         match method {
-            Ok(NwcMethod::PayInvoice) => {
+            ParsedMethod::Known(NwcMethod::PayInvoice) => {
                 self.handle_pay_invoice(context.request.params, sender_pubkey)
                     .await
             }
-            Ok(NwcMethod::MakeInvoice) => self.handle_make_invoice(context.request.params).await,
-            Ok(NwcMethod::GetBalance) => self.handle_get_balance().await,
-            Ok(NwcMethod::ListTransactions) => {
+            ParsedMethod::Known(NwcMethod::MakeInvoice) => {
+                self.handle_make_invoice(context.request.params).await
+            }
+            ParsedMethod::Known(NwcMethod::GetBalance) => self.handle_get_balance().await,
+            ParsedMethod::Known(NwcMethod::ListTransactions) => {
                 self.handle_list_transactions(context.request.params).await
             }
-            Ok(NwcMethod::GetInfo) => self.handle_get_info().await,
-            Ok(NwcMethod::PayKeysend) => {
+            ParsedMethod::Known(NwcMethod::GetInfo) => self.handle_get_info().await,
+            ParsedMethod::Known(NwcMethod::PayKeysend) => {
                 self.handle_pay_keysend(context.request.params, sender_pubkey)
                     .await
             }
-            Ok(NwcMethod::LookupInvoice) => {
+            ParsedMethod::Known(NwcMethod::LookupInvoice) => {
                 self.handle_lookup_invoice(context.request.params).await
             }
-            Ok(NwcMethod::MultiPayInvoice) | Ok(NwcMethod::MultiPayKeysend) => {
+            ParsedMethod::Known(NwcMethod::MultiPayInvoice | NwcMethod::MultiPayKeysend) => {
+                let method_str = method.as_str();
                 warn!("Unimplemented method: {method_str}");
                 Ok(NwcResponse::error(
                     method_str.to_string(),
@@ -83,10 +85,10 @@ impl NwcHandler {
                     format!("Method {method_str} is not yet implemented"),
                 ))
             }
-            Err(_) => {
+            ParsedMethod::Unknown(method_str) => {
                 warn!("Unknown method: {method_str}");
                 Ok(NwcResponse::error(
-                    method_str.to_string(),
+                    method_str.clone(),
                     NwcErrorCode::NotImplemented,
                     format!("Unknown method: {method_str}"),
                 ))

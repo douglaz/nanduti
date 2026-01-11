@@ -1,7 +1,9 @@
 //! NIP-47 (Nostr Wallet Connect) protocol types
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
+use std::fmt;
+use std::str::FromStr;
 use strum::{Display, EnumString};
 
 use crate::lightning::PaymentResult;
@@ -35,10 +37,85 @@ pub enum NwcNotificationType {
     PaymentSent,
 }
 
+/// Parsed NWC method - either a known method or an unrecognized string.
+///
+/// This allows type-safe handling of known methods while gracefully
+/// handling unknown methods with proper error responses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedMethod {
+    /// A recognized NWC method
+    Known(NwcMethod),
+    /// An unrecognized method string (preserved for error messages)
+    Unknown(String),
+}
+
+impl ParsedMethod {
+    /// Returns the known method, or None if unknown
+    pub fn as_known(&self) -> Option<&NwcMethod> {
+        match self {
+            ParsedMethod::Known(m) => Some(m),
+            ParsedMethod::Unknown(_) => None,
+        }
+    }
+
+    /// Returns the method as a string (for error messages and serialization)
+    pub fn as_str(&self) -> &str {
+        match self {
+            ParsedMethod::Known(m) => m.as_str(),
+            ParsedMethod::Unknown(s) => s,
+        }
+    }
+}
+
+impl NwcMethod {
+    /// Returns the method as a string
+    pub fn as_str(&self) -> &str {
+        match self {
+            NwcMethod::PayInvoice => "pay_invoice",
+            NwcMethod::MultiPayInvoice => "multi_pay_invoice",
+            NwcMethod::PayKeysend => "pay_keysend",
+            NwcMethod::MultiPayKeysend => "multi_pay_keysend",
+            NwcMethod::MakeInvoice => "make_invoice",
+            NwcMethod::LookupInvoice => "lookup_invoice",
+            NwcMethod::ListTransactions => "list_transactions",
+            NwcMethod::GetBalance => "get_balance",
+            NwcMethod::GetInfo => "get_info",
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ParsedMethod {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match NwcMethod::from_str(&s) {
+            Ok(method) => Ok(ParsedMethod::Known(method)),
+            Err(_) => Ok(ParsedMethod::Unknown(s)),
+        }
+    }
+}
+
+impl Serialize for ParsedMethod {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl fmt::Display for ParsedMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// NWC request structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NwcRequest {
-    pub method: String,
+    pub method: ParsedMethod,
     pub params: Value,
 }
 
