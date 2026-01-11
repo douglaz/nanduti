@@ -21,7 +21,36 @@ use tracing::info;
 
 use crate::api_client;
 use nanduti_core::models::{Amount, Bolt11String, Description, FederationId};
+use serde::Serialize;
 use std::str::FromStr;
+
+/// LNURL type inferred from URL patterns
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LnurlType {
+    Pay,
+    Withdraw,
+    Auth,
+    Channel,
+    Unknown,
+}
+
+impl LnurlType {
+    /// Infer the LNURL type from URL patterns
+    pub fn from_url(url: &str) -> Self {
+        if url.contains("/lnurlp/") || url.contains("/pay") {
+            Self::Pay
+        } else if url.contains("/lnurlw/") || url.contains("/withdraw") {
+            Self::Withdraw
+        } else if url.contains("/lnurl-auth") || url.contains("/auth") {
+            Self::Auth
+        } else if url.contains("/lnurlc/") || url.contains("/channel") {
+            Self::Channel
+        } else {
+            Self::Unknown
+        }
+    }
+}
 
 /// Configuration for the MCP server
 #[derive(Debug, Clone)]
@@ -831,17 +860,7 @@ impl NandutiMcpServer {
                 };
 
                 // Determine LNURL type based on URL pattern
-                let lnurl_type = if url.contains("/lnurlp/") || url.contains("/pay") {
-                    "pay"
-                } else if url.contains("/lnurlw/") || url.contains("/withdraw") {
-                    "withdraw"
-                } else if url.contains("/lnurl-auth") || url.contains("/auth") {
-                    "auth"
-                } else if url.contains("/lnurlc/") || url.contains("/channel") {
-                    "channel"
-                } else {
-                    "unknown"
-                };
+                let lnurl_type = LnurlType::from_url(&url);
 
                 let response = serde_json::json!({
                     "lnurl": request.lnurl,
