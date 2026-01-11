@@ -141,12 +141,13 @@ pub struct NwcResponse {
 /// NWC error response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NwcError {
-    pub code: String,
+    pub code: NwcErrorCode,
     pub message: String,
 }
 
 /// Standard NWC error codes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum NwcErrorCode {
     RateLimited,
     NotImplemented,
@@ -396,10 +397,7 @@ impl NwcResponse {
     pub fn error(result_type: String, code: NwcErrorCode, message: String) -> Self {
         Self {
             result_type,
-            error: Some(NwcError {
-                code: code.as_str().to_string(),
-                message,
-            }),
+            error: Some(NwcError { code, message }),
             result: None,
         }
     }
