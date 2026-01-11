@@ -437,7 +437,7 @@ pub struct ListTransactionsParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unpaid: Option<bool>,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub transaction_type: Option<String>, // "incoming" or "outgoing"
+    pub transaction_type: Option<TransactionType>,
 }
 
 /// NWC pay_keysend parameters

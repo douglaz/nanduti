@@ -788,9 +788,10 @@ impl std::fmt::Display for ConnectionUri {
 /// Filter for allowed federations in NWC connections.
 ///
 /// Supports either allowing all federations or a specific list.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FederationFilter {
     /// Allow all federations
+    #[default]
     All,
     /// Allow only specific federations
     Specific(Vec<FederationId>),
@@ -818,18 +819,13 @@ impl FederationFilter {
     }
 }
 
-impl Default for FederationFilter {
-    fn default() -> Self {
-        FederationFilter::All
-    }
-}
-
 /// Filter for allowed NWC methods in connections.
 ///
 /// Supports either allowing all methods or a specific list.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum MethodFilter {
     /// Allow all methods
+    #[default]
     All,
     /// Allow only specific methods
     Specific(Vec<String>),
@@ -852,11 +848,5 @@ impl MethodFilter {
     /// Create a filter for specific methods
     pub fn specific(methods: Vec<String>) -> Self {
         MethodFilter::Specific(methods)
-    }
-}
-
-impl Default for MethodFilter {
-    fn default() -> Self {
-        MethodFilter::All
     }
 }

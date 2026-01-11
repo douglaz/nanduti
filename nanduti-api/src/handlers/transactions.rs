@@ -23,7 +23,7 @@ pub struct ListTransactionsQuery {
     pub unpaid: Option<bool>,
     /// Filter by transaction type: "incoming" or "outgoing"
     #[serde(rename = "type")]
-    pub transaction_type: Option<String>,
+    pub transaction_type: Option<TransactionType>,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,11 +79,7 @@ pub async fn list_transactions(
 
     // Filter by transaction type (incoming/outgoing)
     if let Some(tx_type) = &params.transaction_type {
-        all_transactions.retain(|tx| match tx_type.as_str() {
-            "incoming" => tx.transaction_type == TransactionType::Incoming,
-            "outgoing" => tx.transaction_type == TransactionType::Outgoing,
-            _ => true, // Unknown type, don't filter
-        });
+        all_transactions.retain(|tx| tx.transaction_type == *tx_type);
     }
 
     // Filter by unpaid status (pending transactions)
