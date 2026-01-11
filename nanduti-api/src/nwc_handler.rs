@@ -508,6 +508,8 @@ impl NwcHandler {
 
     /// Handle get_info request
     async fn handle_get_info(&self) -> Result<NwcResponse> {
+        use nanduti_core::nwc_protocol::NwcNetwork;
+
         // Get first online federation for network info
         let federations = self.federation_manager.list_federations().await;
         let online_federation = federations
@@ -517,28 +519,28 @@ impl NwcHandler {
         let (network, block_height) = if let Some(federation) = online_federation {
             if let Some(client) = &federation.client {
                 let info = client.get_info().await?;
-                (info.network, info.block_height)
+                (NwcNetwork::from_str_loose(&info.network), info.block_height)
             } else {
-                ("bitcoin".to_string(), 0)
+                (NwcNetwork::Mainnet, 0)
             }
         } else {
-            ("bitcoin".to_string(), 0)
+            (NwcNetwork::Mainnet, 0)
         };
 
         // Note: pay_keysend is not advertised because Fedimint doesn't support it yet.
         // See: https://github.com/fedimint/fedimint/issues/XXXX
         let methods = vec![
-            NwcMethod::PayInvoice.to_string(),
-            NwcMethod::MakeInvoice.to_string(),
-            NwcMethod::GetBalance.to_string(),
-            NwcMethod::ListTransactions.to_string(),
-            NwcMethod::GetInfo.to_string(),
-            NwcMethod::LookupInvoice.to_string(),
+            NwcMethod::PayInvoice,
+            NwcMethod::MakeInvoice,
+            NwcMethod::GetBalance,
+            NwcMethod::ListTransactions,
+            NwcMethod::GetInfo,
+            NwcMethod::LookupInvoice,
         ];
 
         let notifications = vec![
-            NwcNotificationType::PaymentReceived.to_string(),
-            NwcNotificationType::PaymentSent.to_string(),
+            NwcNotificationType::PaymentReceived,
+            NwcNotificationType::PaymentSent,
         ];
 
         // Use the actual wallet's Nostr public key

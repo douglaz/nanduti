@@ -37,6 +37,44 @@ pub enum NwcNotificationType {
     PaymentSent,
 }
 
+/// Bitcoin network type for NWC protocol.
+///
+/// This is separate from `bitcoin::Network` because NWC uses "mainnet"
+/// instead of "bitcoin" for the main network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NwcNetwork {
+    Mainnet,
+    Testnet,
+    Signet,
+    Regtest,
+}
+
+impl From<bitcoin::Network> for NwcNetwork {
+    fn from(network: bitcoin::Network) -> Self {
+        match network {
+            bitcoin::Network::Bitcoin => NwcNetwork::Mainnet,
+            bitcoin::Network::Testnet => NwcNetwork::Testnet,
+            bitcoin::Network::Signet => NwcNetwork::Signet,
+            bitcoin::Network::Regtest => NwcNetwork::Regtest,
+            _ => NwcNetwork::Mainnet, // Fallback for unknown networks
+        }
+    }
+}
+
+impl NwcNetwork {
+    /// Parse from string (used when reading from federation metadata)
+    pub fn from_str_loose(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "mainnet" | "bitcoin" => NwcNetwork::Mainnet,
+            "testnet" => NwcNetwork::Testnet,
+            "signet" => NwcNetwork::Signet,
+            "regtest" => NwcNetwork::Regtest,
+            _ => NwcNetwork::Mainnet, // Default to mainnet
+        }
+    }
+}
+
 /// Parsed NWC method - either a known method or an unrecognized string.
 ///
 /// This allows type-safe handling of known methods while gracefully
@@ -235,11 +273,11 @@ pub struct GetInfoResult {
     pub alias: String,
     pub color: String,
     pub pubkey: PublicKey,
-    pub network: String,
+    pub network: NwcNetwork,
     pub block_height: u64,
     pub block_hash: String,
-    pub methods: Vec<String>,
-    pub notifications: Vec<String>,
+    pub methods: Vec<NwcMethod>,
+    pub notifications: Vec<NwcNotificationType>,
 }
 
 impl NwcResponse {
@@ -348,21 +386,20 @@ impl NwcResponse {
     /// Create a successful get_info response
     pub fn get_info(
         pubkey: String,
-        network: String,
+        network: NwcNetwork,
         block_height: u64,
         block_hash: Option<String>,
-        methods: Vec<String>,
-        notifications: Vec<String>,
+        methods: Vec<NwcMethod>,
+        notifications: Vec<NwcNotificationType>,
     ) -> Self {
         // Use provided block_hash or default placeholder
         // TODO: Fedimint wallet module should provide the actual block hash
-        let block_hash = block_hash.unwrap_or_else(|| {
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
-        });
+        let block_hash =
+            block_hash.unwrap_or_else(|| crate::constants::ZERO_BLOCK_HASH.to_string());
 
         let info_result = GetInfoResult {
-            alias: "Nanduti".to_string(),
-            color: "#FF6B00".to_string(),
+            alias: crate::constants::WALLET_ALIAS.to_string(),
+            color: crate::constants::WALLET_COLOR.to_string(),
             pubkey: PublicKey::new(pubkey),
             network,
             block_height,
