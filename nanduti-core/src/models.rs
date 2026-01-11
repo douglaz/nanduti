@@ -784,3 +784,79 @@ impl std::fmt::Display for ConnectionUri {
         write!(f, "{}", self.0)
     }
 }
+
+/// Filter for allowed federations in NWC connections.
+///
+/// Supports either allowing all federations or a specific list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FederationFilter {
+    /// Allow all federations
+    All,
+    /// Allow only specific federations
+    Specific(Vec<FederationId>),
+}
+
+impl FederationFilter {
+    /// Check if a federation is allowed by this filter
+    pub fn allows(&self, federation_id: &FederationId) -> bool {
+        match self {
+            FederationFilter::All => true,
+            FederationFilter::Specific(ids) => {
+                ids.iter().any(|id| id.as_str() == federation_id.as_str())
+            }
+        }
+    }
+
+    /// Create a filter that allows all federations
+    pub fn all() -> Self {
+        FederationFilter::All
+    }
+
+    /// Create a filter for specific federations
+    pub fn specific(ids: Vec<FederationId>) -> Self {
+        FederationFilter::Specific(ids)
+    }
+}
+
+impl Default for FederationFilter {
+    fn default() -> Self {
+        FederationFilter::All
+    }
+}
+
+/// Filter for allowed NWC methods in connections.
+///
+/// Supports either allowing all methods or a specific list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MethodFilter {
+    /// Allow all methods
+    All,
+    /// Allow only specific methods
+    Specific(Vec<String>),
+}
+
+impl MethodFilter {
+    /// Check if a method is allowed by this filter
+    pub fn allows(&self, method: &str) -> bool {
+        match self {
+            MethodFilter::All => true,
+            MethodFilter::Specific(methods) => methods.iter().any(|m| m == method),
+        }
+    }
+
+    /// Create a filter that allows all methods
+    pub fn all() -> Self {
+        MethodFilter::All
+    }
+
+    /// Create a filter for specific methods
+    pub fn specific(methods: Vec<String>) -> Self {
+        MethodFilter::Specific(methods)
+    }
+}
+
+impl Default for MethodFilter {
+    fn default() -> Self {
+        MethodFilter::All
+    }
+}

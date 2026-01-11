@@ -143,11 +143,7 @@ impl NwcHandler {
             };
 
             // 2. Check if pay_invoice method is allowed
-            if !connection
-                .allowed_methods
-                .contains(&"pay_invoice".to_string())
-                && !connection.allowed_methods.contains(&"*".to_string())
-            {
+            if !connection.allowed_methods.allows("pay_invoice") {
                 warn!(
                     "Connection {} attempted to use restricted method: pay_invoice",
                     connection.id
@@ -262,11 +258,7 @@ impl NwcHandler {
                 .context("Failed to lookup connection for federation check")?
             {
                 // Check federation restriction
-                if !connection.allowed_federations.contains(&"*".to_string())
-                    && !connection
-                        .allowed_federations
-                        .contains(&federation.id.to_string())
-                {
+                if !connection.allowed_federations.allows(&federation.id) {
                     warn!(
                         "Connection {} attempted to use restricted federation: {}",
                         connection.id, federation.id
@@ -600,11 +592,7 @@ impl NwcHandler {
             };
 
             // 2. Check if pay_keysend method is allowed
-            if !connection
-                .allowed_methods
-                .contains(&"pay_keysend".to_string())
-                && !connection.allowed_methods.contains(&"*".to_string())
-            {
+            if !connection.allowed_methods.allows("pay_keysend") {
                 warn!(
                     "Connection {} attempted to use restricted method: pay_keysend",
                     connection.id
@@ -687,11 +675,7 @@ impl NwcHandler {
                 .context("Failed to lookup connection for federation check")?
             {
                 // Check federation restriction
-                if !connection.allowed_federations.contains(&"*".to_string())
-                    && !connection
-                        .allowed_federations
-                        .contains(&federation.id.to_string())
-                {
+                if !connection.allowed_federations.allows(&federation.id) {
                     warn!(
                         "Connection {} attempted to use restricted federation: {}",
                         connection.id, federation.id

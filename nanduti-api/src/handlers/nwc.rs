@@ -56,23 +56,27 @@ pub async fn create_nwc_connection(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Store connection
+    let allowed_federations = if req.allowed_federations.is_empty()
+        || req.allowed_federations.iter().any(|f| f.as_str() == "*")
+    {
+        nanduti_core::models::FederationFilter::All
+    } else {
+        nanduti_core::models::FederationFilter::Specific(req.allowed_federations.clone())
+    };
+
     let connection = NwcConnection {
         id: uuid::Uuid::new_v4().to_string(),
         name: req.name.to_string(),
         pubkey: wallet_keys.public_key.clone(),
-        allowed_federations: req
-            .allowed_federations
-            .iter()
-            .map(|f| f.to_string())
-            .collect(),
+        allowed_federations,
         daily_limit_msats: req.daily_limit.map(|a| a.as_msats()),
         per_payment_limit_msats: req.per_payment_limit.map(|a| a.as_msats()),
-        allowed_methods: vec![
+        allowed_methods: nanduti_core::models::MethodFilter::specific(vec![
             "pay_invoice".to_string(),
             "make_invoice".to_string(),
             "get_balance".to_string(),
             "list_transactions".to_string(),
-        ],
+        ]),
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
