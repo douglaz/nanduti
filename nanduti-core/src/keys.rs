@@ -144,7 +144,9 @@ impl NwcConnection {
                 "relay" => relays.push(value),
                 "secret" => secret = Some(value),
                 "lud16" => lud16 = Some(value),
-                _ => {} // Ignore unknown parameters
+                unknown => {
+                    tracing::debug!("Ignoring unknown NWC URI parameter: {unknown}={value}");
+                }
             }
         }
 

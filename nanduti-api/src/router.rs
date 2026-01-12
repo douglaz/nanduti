@@ -102,13 +102,18 @@ impl FederationRouter {
                         lowest_fee = fee;
                         best_federation = Some(federation);
                     }
+                    Ok(fee) => {
+                        debug!(
+                            "Federation {id} fee {fee} not lower than current best {lowest_fee}",
+                            id = federation.id
+                        );
+                    }
                     Err(error) => {
                         debug!(
                             "Failed to estimate fee for federation {id}: {error}",
                             id = federation.id
                         );
                     }
-                    _ => {}
                 }
             }
         }
@@ -235,7 +240,12 @@ impl FederationRouter {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 });
             }
-            _ => {} // Keep original order
+            RoutingStrategy::RoundRobin | RoutingStrategy::BalanceWeighted => {
+                debug!(
+                    "Using {:?} strategy - keeping original federation order",
+                    self.strategy
+                );
+            }
         }
 
         // Try each federation until one succeeds
