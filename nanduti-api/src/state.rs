@@ -78,8 +78,23 @@ impl AppState {
         ));
 
         // Create Nostr client for wallet service
-        let wallet_keys = nanduti_core::keys::NwcKeys::generate()?;
-        let nostr_client = Arc::new(NostrClient::new(relays, Some(wallet_keys.secret_key)).await?);
+        // Derive wallet keys deterministically from mnemonic so they persist across restarts.
+        // Without this, NWC connection URIs (which embed the wallet pubkey) would break on restart.
+        let wallet_secret = if let Some(ref dir) = data_dir {
+            let password = std::env::var("NANDUTI_MNEMONIC_PASSWORD")
+                .context("NANDUTI_MNEMONIC_PASSWORD environment variable not set")?;
+            let mnemonic = MnemonicStore::load_mnemonic(dir, Some(&password))
+                .await?
+                .context("Mnemonic not found - storage should have been initialized above")?;
+            let secret_hex = MnemonicStore::derive_nostr_wallet_key(&mnemonic)?;
+            info!("Derived wallet Nostr key from mnemonic");
+            Some(secret_hex)
+        } else {
+            // No persistent storage - generate ephemeral keys (development/testing only)
+            let keys = nanduti_core::keys::NwcKeys::generate()?;
+            Some(keys.secret_key)
+        };
+        let nostr_client = Arc::new(NostrClient::new(relays, wallet_secret).await?);
 
         // Create NWC handler
         let nwc_handler = Arc::new(NwcHandler::new(

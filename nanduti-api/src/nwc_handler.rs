@@ -66,7 +66,8 @@ impl NwcHandler {
             }
             ParsedMethod::Known(NwcMethod::GetBalance) => self.handle_get_balance().await,
             ParsedMethod::Known(NwcMethod::ListTransactions) => {
-                self.handle_list_transactions(context.request.params).await
+                self.handle_list_transactions(context.request.params, sender_pubkey)
+                    .await
             }
             ParsedMethod::Known(NwcMethod::GetInfo) => self.handle_get_info().await,
             ParsedMethod::Known(NwcMethod::PayKeysend) => {
@@ -454,9 +455,52 @@ impl NwcHandler {
     }
 
     /// Handle list_transactions request
-    async fn handle_list_transactions(&self, params: Value) -> Result<NwcResponse> {
+    async fn handle_list_transactions(
+        &self,
+        params: Value,
+        sender_pubkey: &nanduti_core::models::PublicKey,
+    ) -> Result<NwcResponse> {
         let params: ListTransactionsParams =
             serde_json::from_value(params).context("Invalid list_transactions parameters")?;
+
+        // AUTHORIZATION: Require a valid connection before serving transaction history
+        let connection_id = if let Some(storage) = &self.storage {
+            let connection = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?;
+
+            match connection {
+                Some(conn) => {
+                    // Check if list_transactions method is allowed
+                    if !conn.allowed_methods.allows("list_transactions") {
+                        warn!(
+                            "Connection {} attempted to use restricted method: list_transactions",
+                            conn.id
+                        );
+                        return Ok(NwcResponse::error(
+                            "list_transactions".to_string(),
+                            NwcErrorCode::Restricted,
+                            "Method list_transactions is not allowed for this connection"
+                                .to_string(),
+                        ));
+                    }
+                    Some(conn.id)
+                }
+                None => {
+                    warn!(
+                        "Unauthorized list_transactions attempt from unknown pubkey: {}",
+                        sender_pubkey
+                    );
+                    return Ok(NwcResponse::error(
+                        "list_transactions".to_string(),
+                        NwcErrorCode::Unauthorized,
+                        "No active connection found for this pubkey".to_string(),
+                    ));
+                }
+            }
+        } else {
+            None
+        };
 
         let mut all_transactions = Vec::new();
 
@@ -466,6 +510,17 @@ impl NwcHandler {
                 let transactions = storage.get_federation_transactions(&federation.id, None)?;
                 all_transactions.extend(transactions);
             }
+        }
+
+        // Filter to only show transactions belonging to this connection
+        if let Some(conn_id) = &connection_id {
+            all_transactions.retain(|tx| {
+                tx.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("connection_id"))
+                    .and_then(|v| v.as_str())
+                    == Some(conn_id)
+            });
         }
 
         // Filter by timestamp range (from/until)

@@ -40,20 +40,25 @@ pub async fn create_nwc_connection(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Json<CreateConnectionResponse>, (StatusCode, String)> {
-    use nanduti_core::keys::NwcKeys;
     use nanduti_core::storage::NwcConnection;
 
-    // Generate keys for the connection
-    let wallet_keys =
-        NwcKeys::generate().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // Use the server's actual wallet pubkey for the connection URI.
+    // This is the key the Nostr client listens on, so clients can reach the server.
+    let wallet_pubkey = state.nostr_client.public_key();
 
-    // Generate connection URI
+    // Generate a client secret for this connection. The client will use this
+    // secret to sign NWC requests, and we store the derived pubkey for auth lookups.
     let client_connection = nanduti_core::keys::NwcConnection::generate(
-        wallet_keys.public_key.clone(),
+        wallet_pubkey.clone(),
         req.relays.iter().map(|r| r.to_string()).collect(),
         req.lud16.as_ref().map(|l| l.to_string()),
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Derive the client's public key from the secret for connection lookup/authorization
+    let client_keys = client_connection
+        .get_client_keys()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Store connection
     let allowed_federations = if req.allowed_federations.is_empty()
@@ -67,7 +72,7 @@ pub async fn create_nwc_connection(
     let connection = NwcConnection {
         id: uuid::Uuid::new_v4().to_string(),
         name: req.name.to_string(),
-        pubkey: wallet_keys.public_key.clone(),
+        pubkey: client_keys.public_key.clone(),
         allowed_federations,
         daily_limit_msats: req.daily_limit.map(|a| a.as_msats()),
         per_payment_limit_msats: req.per_payment_limit.map(|a| a.as_msats()),
@@ -93,7 +98,7 @@ pub async fn create_nwc_connection(
     Ok(Json(CreateConnectionResponse {
         connection_id: ConnectionId::new(connection.id),
         name: req.name,
-        pubkey: PublicKey::new(wallet_keys.public_key),
+        pubkey: PublicKey::new(client_keys.public_key),
         connection_uri: ConnectionUri::new(client_connection.to_uri()),
     }))
 }

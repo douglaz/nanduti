@@ -262,6 +262,27 @@ impl MnemonicStore {
     /// # Returns
     /// 32-byte key suitable for AES-256-GCM encryption
     pub fn derive_storage_key(mnemonic: &Mnemonic) -> Result<[u8; 32]> {
+        Self::derive_key_with_info(mnemonic, b"nanduti-storage-v1")
+    }
+
+    /// Derive a Nostr wallet secret key from a mnemonic
+    ///
+    /// Uses HKDF-SHA256 with a distinct info string to derive a 32-byte key
+    /// suitable for use as a Nostr/secp256k1 secret key. This ensures the
+    /// wallet identity is deterministic and persists across restarts.
+    ///
+    /// # Arguments
+    /// - `mnemonic`: The BIP39 mnemonic to derive the key from
+    ///
+    /// # Returns
+    /// 32-byte key as a hex string, suitable for `NwcKeys::from_secret()`
+    pub fn derive_nostr_wallet_key(mnemonic: &Mnemonic) -> Result<String> {
+        let key = Self::derive_key_with_info(mnemonic, b"nanduti-nostr-wallet-v1")?;
+        Ok(hex::encode(key))
+    }
+
+    /// Internal helper: derive a 32-byte key from a mnemonic with the given HKDF info string
+    fn derive_key_with_info(mnemonic: &Mnemonic, info: &[u8]) -> Result<[u8; 32]> {
         // Get mnemonic as input key material
         // Using the mnemonic string as IKM (it contains ~128-256 bits of entropy)
         let ikm = mnemonic.to_string();
@@ -272,7 +293,7 @@ impl MnemonicStore {
 
         // Derive key with domain-specific info string for separation
         let mut key = [0u8; 32];
-        hk.expand(b"nanduti-storage-v1", &mut key)
+        hk.expand(info, &mut key)
             .map_err(|_| anyhow::anyhow!("HKDF key expansion failed"))?;
 
         Ok(key)
