@@ -55,15 +55,9 @@ pub async fn list_transactions(
             all_transactions.extend(txs);
         }
     } else {
-        // Get transactions for all federations
-        let federations = state.federation_manager.list_federations().await;
-        for federation in federations {
-            if let Ok(txs) = state
-                .storage
-                .get_federation_transactions(&federation.id, None)
-            {
-                all_transactions.extend(txs);
-            }
+        // Get all transactions (including from removed federations)
+        if let Ok(txs) = state.storage.get_all_transactions() {
+            all_transactions.extend(txs);
         }
     }
 

@@ -214,6 +214,10 @@ impl FedimintClientWrapper {
             .get_first_module::<MintClientModule>()
             .context("Mint module not available")?;
 
+        // Get the mint module's actual instance ID from the federation config
+        // instead of hardcoding 1, since Fedimint assigns IDs from config.
+        let mint_instance_id = mint_module.id;
+
         // Get note counts by denomination from the database
         let summary = mint_module
             .get_note_counts_by_denomination(
@@ -222,7 +226,7 @@ impl FedimintClientWrapper {
                     .db()
                     .begin_transaction_nc()
                     .await
-                    .to_ref_with_prefix_module_id(1)
+                    .to_ref_with_prefix_module_id(mint_instance_id)
                     .0,
             )
             .await;

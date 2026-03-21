@@ -524,6 +524,33 @@ impl Storage {
         Ok(transactions)
     }
 
+    /// Get all transactions across all federations (including removed ones)
+    ///
+    /// This ensures transactions from removed federations remain visible
+    /// in history listings.
+    pub fn get_all_transactions(&self) -> Result<Vec<Transaction>> {
+        const MAX_SCAN: usize = 10_000;
+        let mut transactions = Vec::new();
+        let mut scanned = 0;
+
+        if let Some(tree) = &self.transactions {
+            for item in tree.iter() {
+                scanned += 1;
+                if scanned > MAX_SCAN {
+                    warn!("Transaction scan exceeded {MAX_SCAN} items, aborting");
+                    break;
+                }
+
+                let (_, value) = item.context("Failed to read transaction item")?;
+                let transaction = self.deserialize_transaction(&value)?;
+                transactions.push(transaction);
+            }
+        }
+
+        transactions.sort_by_key(|tx| std::cmp::Reverse(tx.created_at));
+        Ok(transactions)
+    }
+
     /// Get all transactions matching a payment hash
     ///
     /// # Returns
@@ -738,13 +765,20 @@ impl Storage {
                 if let Some(metadata) = &transaction.metadata {
                     if let Some(conn_id) = metadata.get("connection_id") {
                         if conn_id.as_str() == Some(connection_id) {
-                            // Use settled_at for daily spending so payments that
-                            // span a day boundary are charged to the settlement day,
-                            // preventing double-spend across the midnight rollover.
-                            let tx_timestamp = transaction
-                                .settled_at
-                                .map(|t| t.as_secs())
-                                .unwrap_or(transaction.created_at.as_secs());
+                            // For Pending payments, use created_at so they are
+                            // always counted in the current day's quota regardless
+                            // of when they eventually settle. For Settled payments,
+                            // use settled_at so completed payments are charged to
+                            // the day they actually settled.
+                            let tx_timestamp =
+                                if transaction.state == crate::models::TransactionState::Pending {
+                                    transaction.created_at.as_secs()
+                                } else {
+                                    transaction
+                                        .settled_at
+                                        .map(|t| t.as_secs())
+                                        .unwrap_or(transaction.created_at.as_secs())
+                                };
                             if tx_timestamp >= day_start && tx_timestamp < day_end {
                                 // Count both Settled and Pending outgoing payments so
                                 // concurrent in-flight payments are reserved against the

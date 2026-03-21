@@ -518,6 +518,15 @@ impl NwcHandler {
             }
         }
 
+        // Refresh the federation's cached balance so subsequent routing and
+        // get_balance calls reflect the spend immediately.
+        if let Err(e) = self.federation_manager.update_balance(&federation.id).await {
+            warn!(
+                "Failed to refresh balance for federation {} after payment: {e}",
+                federation.id
+            );
+        }
+
         // In-flight marker is cleaned up by _in_flight_guard when it drops
 
         Ok(NwcResponse::pay_invoice(result))
@@ -726,12 +735,9 @@ impl NwcHandler {
 
         let mut all_transactions = Vec::new();
 
-        // Get transactions from all federations (get more than limit to allow for filtering)
+        // Get all transactions (including from removed federations)
         if let Some(storage) = &self.storage {
-            for federation in self.federation_manager.list_federations().await {
-                let transactions = storage.get_federation_transactions(&federation.id, None)?;
-                all_transactions.extend(transactions);
-            }
+            all_transactions = storage.get_all_transactions()?;
         }
 
         // Filter to only show transactions belonging to this connection
@@ -1075,6 +1081,14 @@ impl NwcHandler {
                     .increment_connection_spent(&conn.id, total_amount)
                     .context("Failed to increment connection spent")?;
             }
+        }
+
+        // Refresh the federation's cached balance after keysend payment
+        if let Err(e) = self.federation_manager.update_balance(&federation.id).await {
+            warn!(
+                "Failed to refresh balance for federation {} after keysend: {e}",
+                federation.id
+            );
         }
 
         Ok(NwcResponse::pay_invoice(result))
