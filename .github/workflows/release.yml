@@ -60,7 +60,7 @@ jobs:
       - name: Create and push tag
         run: |
           git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}"
-          git push origin HEAD:main "${{ inputs.version }}"
+          git push origin HEAD "${{ inputs.version }}"
 
   build-binaries:
     name: Build Binaries

@@ -33,6 +33,8 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
             config.data_dir.clone(),
             config.relays.clone(),
             config.routing_strategy,
+            config.max_payment_amount,
+            config.daily_limit_amount,
         )
         .await?,
     );

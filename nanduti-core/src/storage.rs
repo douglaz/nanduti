@@ -687,8 +687,13 @@ impl Storage {
                                     == crate::models::TransactionType::Outgoing
                                     && transaction.state == crate::models::TransactionState::Settled
                                 {
-                                    daily_spent =
-                                        daily_spent.saturating_add(transaction.amount.as_msats());
+                                    // Include both the payment amount and routing fees
+                                    // to match what increment_connection_spent records.
+                                    let fees =
+                                        transaction.fees_paid.map(|f| f.as_msats()).unwrap_or(0);
+                                    daily_spent = daily_spent
+                                        .saturating_add(transaction.amount.as_msats())
+                                        .saturating_add(fees);
                                 }
                             }
                         }

@@ -976,15 +976,16 @@ impl NwcHandler {
         if let Some(tx) = transaction {
             // Build response based on transaction state
             let settled = matches!(tx.state, TransactionState::Settled);
+            // NIP-47 uses millisatoshis for all amount fields
             let response = serde_json::json!({
                 "invoice": tx.invoice.as_ref().map(|i| i.to_string()),
-                "amount": tx.amount.as_msats() / 1000, // Convert to sats for NWC
+                "amount": tx.amount.as_msats(),
                 "payment_hash": tx.payment_hash.to_string(),
                 "preimage": tx.preimage.as_ref().map(|p| p.to_string()),
                 "settled_at": tx.settled_at.map(|t| t.as_secs()),
                 "created_at": tx.created_at.as_secs(),
                 "description": tx.description.as_ref().map(|d| d.to_string()),
-                "fees_paid": tx.fees_paid.map(|f| f.as_msats() / 1000),
+                "fees_paid": tx.fees_paid.map(|f| f.as_msats()),
                 "settled": settled,
             });
 

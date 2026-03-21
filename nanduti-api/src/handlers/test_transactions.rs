@@ -39,6 +39,9 @@ mod tests {
             )),
             nostr_client,
             router,
+            max_payment_amount: None,
+            daily_limit_amount: None,
+            relays: vec![],
         })
     }
 

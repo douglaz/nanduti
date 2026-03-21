@@ -26,6 +26,15 @@ pub struct AppState {
 
     /// Federation router for payment routing
     pub router: Arc<FederationRouter>,
+
+    /// Server-level maximum payment amount (applied as hard cap on connections)
+    pub max_payment_amount: Option<nanduti_core::models::Amount>,
+
+    /// Server-level daily spending limit (applied as hard cap on connections)
+    pub daily_limit_amount: Option<nanduti_core::models::Amount>,
+
+    /// Relay URLs the server is actually subscribed to
+    pub relays: Vec<String>,
 }
 
 impl AppState {
@@ -34,6 +43,8 @@ impl AppState {
         data_dir: Option<std::path::PathBuf>,
         relays: Vec<String>,
         routing_strategy: RoutingStrategy,
+        max_payment_amount: Option<nanduti_core::models::Amount>,
+        daily_limit_amount: Option<nanduti_core::models::Amount>,
     ) -> Result<Self> {
         // Derive storage encryption key from mnemonic if data_dir is set
         let encryption_key = if let Some(ref dir) = data_dir {
@@ -98,7 +109,7 @@ impl AppState {
             let keys = nanduti_core::keys::NwcKeys::generate()?;
             Some(keys.secret_key)
         };
-        let nostr_client = Arc::new(NostrClient::new(relays, wallet_secret).await?);
+        let nostr_client = Arc::new(NostrClient::new(relays.clone(), wallet_secret).await?);
 
         // Create NWC handler
         let nwc_handler = Arc::new(NwcHandler::new(
@@ -114,6 +125,9 @@ impl AppState {
             nwc_handler,
             nostr_client,
             router,
+            max_payment_amount,
+            daily_limit_amount,
+            relays,
         })
     }
 }

@@ -39,6 +39,9 @@ mod tests {
             )),
             nostr_client,
             router,
+            max_payment_amount: None,
+            daily_limit_amount: None,
+            relays: vec![],
         })
     }
 
@@ -138,8 +141,8 @@ mod tests {
             )
             .await?;
 
-        // Empty relay list is actually accepted - OK response expected
-        assert_eq!(response.status(), StatusCode::OK);
+        // Empty relay list should be rejected — connection URI needs at least one relay
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         Ok(())
     }
 

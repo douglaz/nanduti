@@ -42,15 +42,29 @@ pub async fn create_nwc_connection(
 ) -> Result<Json<CreateConnectionResponse>, (StatusCode, String)> {
     use nanduti_core::storage::NwcConnection;
 
+    // Reject empty relay lists — the connection URI needs at least one relay
+    // for NWC clients to know where to send requests.
+    if req.relays.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "At least one relay URL is required".to_string(),
+        ));
+    }
+
     // Use the server's actual wallet pubkey for the connection URI.
     // This is the key the Nostr client listens on, so clients can reach the server.
     let wallet_pubkey = state.nostr_client.public_key();
+
+    // Use the server's actual relay list for the connection URI so clients
+    // send requests to relays the wallet is subscribed to. Caller-provided
+    // relays are ignored because the server wouldn't read from them.
+    let server_relays = state.relays.clone();
 
     // Generate a client secret for this connection. The client will use this
     // secret to sign NWC requests, and we store the derived pubkey for auth lookups.
     let client_connection = nanduti_core::keys::NwcConnection::generate(
         wallet_pubkey.clone(),
-        req.relays.iter().map(|r| r.to_string()).collect(),
+        server_relays,
         req.lud16.as_ref().map(|l| l.to_string()),
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -74,8 +88,23 @@ pub async fn create_nwc_connection(
         name: req.name.to_string(),
         pubkey: client_keys.public_key.clone(),
         allowed_federations,
-        daily_limit_msats: req.daily_limit.map(|a| a.as_msats()),
-        per_payment_limit_msats: req.per_payment_limit.map(|a| a.as_msats()),
+        // Apply server-level limits as hard caps: use the minimum of the
+        // request limit and the server limit so operators can enforce global
+        // constraints via --max-payment-sats / --daily-limit-sats.
+        daily_limit_msats: match (
+            req.daily_limit.map(|a| a.as_msats()),
+            state.daily_limit_amount.map(|a| a.as_msats()),
+        ) {
+            (Some(req_limit), Some(server_limit)) => Some(req_limit.min(server_limit)),
+            (limit, server_limit) => limit.or(server_limit),
+        },
+        per_payment_limit_msats: match (
+            req.per_payment_limit.map(|a| a.as_msats()),
+            state.max_payment_amount.map(|a| a.as_msats()),
+        ) {
+            (Some(req_limit), Some(server_limit)) => Some(req_limit.min(server_limit)),
+            (limit, server_limit) => limit.or(server_limit),
+        },
         allowed_methods: nanduti_core::models::MethodFilter::specific(vec![
             "pay_invoice".to_string(),
             "make_invoice".to_string(),
