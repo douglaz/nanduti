@@ -29,6 +29,10 @@ pub struct NwcHandler {
     router: Arc<FederationRouter>,
     storage: Option<Arc<Storage>>,
     nostr_client: Arc<NostrClient>,
+    /// In-flight payment hashes to prevent concurrent duplicate payments.
+    /// A payment hash is inserted before the payment call and removed after
+    /// settlement or failure.
+    in_flight_payments: tokio::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl NwcHandler {
@@ -44,6 +48,7 @@ impl NwcHandler {
             router,
             storage,
             nostr_client,
+            in_flight_payments: tokio::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -291,37 +296,57 @@ impl NwcHandler {
                 }
             }
 
-            // 5. Check for duplicate payment (same payment hash already settled)
-            let existing_txs = storage
-                .get_transactions_by_payment_hash(&invoice.payment_hash)
-                .context("Failed to check for duplicate payments")?;
+            // 5. Atomic duplicate-payment detection: check both storage and
+            // the in-flight set under a single lock to prevent two concurrent
+            // requests for the same BOLT11 from both passing.
+            {
+                let mut in_flight = self.in_flight_payments.lock().await;
+                let ph = invoice.payment_hash.to_string();
 
-            for tx in existing_txs {
-                if tx.state == TransactionState::Settled {
-                    warn!(
-                        "Duplicate payment attempt detected for payment_hash {} by connection {}",
-                        invoice.payment_hash, connection.id
-                    );
-                    return Ok(NwcResponse::error(
-                        "pay_invoice".to_string(),
-                        NwcErrorCode::AlreadyPaid,
-                        format!("Invoice already paid (transaction {})", tx.id.as_str()),
-                    ));
-                } else if tx.state == TransactionState::Pending {
-                    warn!(
-                        "Payment already in progress for payment_hash {} (transaction {})",
-                        invoice.payment_hash,
-                        tx.id.as_str()
-                    );
+                // Check in-flight first (concurrent request already processing)
+                if in_flight.contains(&ph) {
                     return Ok(NwcResponse::error(
                         "pay_invoice".to_string(),
                         NwcErrorCode::PaymentInProgress,
-                        format!(
-                            "Payment already in progress (transaction {})",
-                            tx.id.as_str()
-                        ),
+                        "Payment already in progress (concurrent request)".to_string(),
                     ));
                 }
+
+                // Check storage for settled/pending
+                let existing_txs = storage
+                    .get_transactions_by_payment_hash(&invoice.payment_hash)
+                    .context("Failed to check for duplicate payments")?;
+
+                for tx in existing_txs {
+                    if tx.state == TransactionState::Settled {
+                        warn!(
+                            "Duplicate payment attempt detected for payment_hash {} by connection {}",
+                            invoice.payment_hash, connection.id
+                        );
+                        return Ok(NwcResponse::error(
+                            "pay_invoice".to_string(),
+                            NwcErrorCode::AlreadyPaid,
+                            format!("Invoice already paid (transaction {})", tx.id.as_str()),
+                        ));
+                    } else if tx.state == TransactionState::Pending {
+                        warn!(
+                            "Payment already in progress for payment_hash {} (transaction {})",
+                            invoice.payment_hash,
+                            tx.id.as_str()
+                        );
+                        return Ok(NwcResponse::error(
+                            "pay_invoice".to_string(),
+                            NwcErrorCode::PaymentInProgress,
+                            format!(
+                                "Payment already in progress (transaction {})",
+                                tx.id.as_str()
+                            ),
+                        ));
+                    }
+                }
+
+                // Mark as in-flight while still holding the lock
+                in_flight.insert(ph);
             }
         }
 
@@ -412,6 +437,12 @@ impl NwcHandler {
                         .context("Failed to store failed transaction")?;
                 }
 
+                // Remove from in-flight set
+                self.in_flight_payments
+                    .lock()
+                    .await
+                    .remove(&invoice.payment_hash.to_string());
+
                 // Return payment failed error
                 return Ok(NwcResponse::error(
                     "pay_invoice".to_string(),
@@ -449,6 +480,12 @@ impl NwcHandler {
                     .context("Failed to increment connection spent")?;
             }
         }
+
+        // Remove from in-flight set after successful payment
+        self.in_flight_payments
+            .lock()
+            .await
+            .remove(&invoice.payment_hash.to_string());
 
         Ok(NwcResponse::pay_invoice(result))
     }

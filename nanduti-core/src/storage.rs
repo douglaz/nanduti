@@ -731,11 +731,16 @@ impl Storage {
                                 .map(|t| t.as_secs())
                                 .unwrap_or(transaction.created_at.as_secs());
                             if tx_timestamp >= day_start && tx_timestamp < day_end {
-                                // Only count settled outgoing payments — pending/failed
-                                // transactions should not consume the daily spending quota
+                                // Count both Settled and Pending outgoing payments so
+                                // concurrent in-flight payments are reserved against the
+                                // daily quota and can't exceed the limit in aggregate.
+                                // Failed transactions are excluded.
                                 if transaction.transaction_type
                                     == crate::models::TransactionType::Outgoing
-                                    && transaction.state == crate::models::TransactionState::Settled
+                                    && (transaction.state
+                                        == crate::models::TransactionState::Settled
+                                        || transaction.state
+                                            == crate::models::TransactionState::Pending)
                                 {
                                     // Include both the payment amount and routing fees
                                     // to match what increment_connection_spent records.

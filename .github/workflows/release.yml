@@ -88,10 +88,17 @@ jobs:
       - name: Setup Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@v8
       
+      - name: Set up QEMU for ARM builds
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Build binary
         run: |
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
-            nix build .#default --system aarch64-linux
+            # Use QEMU user-mode emulation via Nix's binfmt support
+            nix build .#default --system aarch64-linux --extra-platforms aarch64-linux
           else
             nix build .#default
           fi
