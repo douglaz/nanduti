@@ -723,8 +723,13 @@ impl Storage {
                 if let Some(metadata) = &transaction.metadata {
                     if let Some(conn_id) = metadata.get("connection_id") {
                         if conn_id.as_str() == Some(connection_id) {
-                            // Check if transaction is within the day
-                            let tx_timestamp = transaction.created_at.as_secs();
+                            // Use settled_at for daily spending so payments that
+                            // span a day boundary are charged to the settlement day,
+                            // preventing double-spend across the midnight rollover.
+                            let tx_timestamp = transaction
+                                .settled_at
+                                .map(|t| t.as_secs())
+                                .unwrap_or(transaction.created_at.as_secs());
                             if tx_timestamp >= day_start && tx_timestamp < day_end {
                                 // Only count settled outgoing payments — pending/failed
                                 // transactions should not consume the daily spending quota

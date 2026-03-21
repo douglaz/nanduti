@@ -175,13 +175,28 @@ impl NwcHandler {
         // Validate invoice
         LightningOperation::validate_invoice(&invoice)?;
 
-        // Determine amount
-        let amount = if let Some(override_amount) = params.amount {
-            override_amount
-        } else if let Some(invoice_amount) = invoice.amount {
+        // Determine the actual payment amount.
+        // For fixed-amount invoices, the BOLT11 amount is authoritative — we must
+        // use it for quota checks because the backend pays that amount regardless
+        // of any client-supplied override. Accepting a smaller override would let
+        // a client bypass per-payment and daily limits.
+        // For amountless invoices, the client MUST supply an amount override.
+        let amount = if let Some(invoice_amount) = invoice.amount {
+            // Fixed-amount invoice: warn if client sent a conflicting override
+            if let Some(override_amount) = params.amount {
+                if override_amount != invoice_amount {
+                    warn!(
+                        "Ignoring amount override ({} msats) for fixed-amount invoice ({} msats)",
+                        override_amount.as_msats(),
+                        invoice_amount.as_msats()
+                    );
+                }
+            }
             invoice_amount
+        } else if let Some(override_amount) = params.amount {
+            override_amount
         } else {
-            bail!("Invoice amount not specified");
+            bail!("Invoice amount not specified and no amount override provided");
         };
 
         // AUTHORIZATION CHECKS
@@ -446,6 +461,17 @@ impl NwcHandler {
     ) -> Result<NwcResponse> {
         let params: MakeInvoiceParams =
             serde_json::from_value(params).context("Invalid make_invoice parameters")?;
+
+        // Reject description_hash — Fedimint's create_bolt11_invoice only supports
+        // direct descriptions. Silently dropping it would commit to different data
+        // than the client requested, breaking hashed-description flows.
+        if params.description_hash.is_some() {
+            return Ok(NwcResponse::error(
+                "make_invoice".to_string(),
+                NwcErrorCode::NotImplemented,
+                "description_hash is not supported; use description instead".to_string(),
+            ));
+        }
 
         let amount = params.amount;
         let description = params
@@ -1031,15 +1057,20 @@ impl NwcHandler {
             ));
         };
 
-        // Scope to the requesting connection before picking the best match
+        // Scope to the requesting connection before picking the best match.
+        // When a connection_id is known, only return transactions that explicitly
+        // belong to this connection. Transactions with no metadata (e.g. REST-created)
+        // are excluded to prevent cross-channel data leakage.
         let transaction = candidates
             .into_iter()
             .find(|tx| match (&connection_id, &tx.metadata) {
                 (Some(conn_id), Some(meta)) => {
                     meta.get("connection_id").and_then(|v| v.as_str()) == Some(conn_id)
                 }
-                // No connection tracking (no storage or no metadata) — allow
-                _ => true,
+                // Connection is known but tx has no metadata — deny (REST-created tx)
+                (Some(_), None) => false,
+                // No connection tracking (no storage) — allow
+                (None, _) => true,
             });
 
         // Check if transaction was found
