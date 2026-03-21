@@ -438,7 +438,9 @@ impl Storage {
         const MAX_LIMIT: usize = 1000;
         const MAX_SCAN: usize = 10_000;
 
-        let limit = limit.unwrap_or(100).min(MAX_LIMIT);
+        // When no limit is specified, return up to MAX_LIMIT so callers that
+        // paginate/filter after retrieval operate on the full history.
+        let limit = limit.unwrap_or(MAX_LIMIT).min(MAX_LIMIT);
         let mut transactions = Vec::new();
         let mut scanned = 0;
 

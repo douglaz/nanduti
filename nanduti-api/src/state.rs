@@ -37,6 +37,10 @@ impl AppState {
     ) -> Result<Self> {
         // Derive storage encryption key from mnemonic if data_dir is set
         let encryption_key = if let Some(ref dir) = data_dir {
+            // Ensure data directory exists before any I/O
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("Failed to create data directory: {}", dir.display()))?;
+
             // Get password from environment variable
             let password = std::env::var("NANDUTI_MNEMONIC_PASSWORD")
                 .context("NANDUTI_MNEMONIC_PASSWORD environment variable not set")?;

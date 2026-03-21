@@ -46,12 +46,23 @@ impl FedimintClientWrapper {
 
         let federation_id = invite.federation_id();
 
-        // Create database path
-        let base_dir = data_dir
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from(".nanduti"));
-        let db_path = base_dir.join(format!("federation_{federation_id}"));
-        std::fs::create_dir_all(&db_path)?;
+        // Create database path.
+        // When data_dir is None (ephemeral mode), use a temporary directory so we
+        // don't silently create persistent files or require NANDUTI_MNEMONIC_PASSWORD.
+        let _temp_dir; // must live as long as db_path
+        let db_path = if let Some(dir) = data_dir {
+            let p = dir.join(format!("federation_{federation_id}"));
+            std::fs::create_dir_all(&p)?;
+            _temp_dir = None;
+            p
+        } else {
+            let tmp = tempfile::tempdir()
+                .context("Failed to create temp dir for ephemeral federation")?;
+            let p = tmp.path().join(format!("federation_{federation_id}"));
+            std::fs::create_dir_all(&p)?;
+            _temp_dir = Some(tmp);
+            p
+        };
 
         // Open database
         let db_file = db_path.join("client.db");
@@ -61,7 +72,8 @@ impl FedimintClientWrapper {
         let db = Database::new(locked_db, Default::default());
 
         // Generate or load mnemonic first
-        let mnemonic = Self::load_or_generate_mnemonic(&db_path).await?;
+        let ephemeral = data_dir.is_none();
+        let mnemonic = Self::load_or_generate_mnemonic(&db_path, ephemeral).await?;
         let root_secret = RootSecret::StandardDoubleDerive(
             Bip39RootSecretStrategy::<12>::to_root_secret(&mnemonic),
         );
@@ -151,7 +163,17 @@ impl FedimintClientWrapper {
     }
 
     /// Load or generate mnemonic
-    async fn load_or_generate_mnemonic(db_path: &Path) -> Result<Mnemonic> {
+    ///
+    /// When `ephemeral` is true, a random mnemonic is generated without persisting
+    /// or requiring a password (used for in-memory/temp mode).
+    async fn load_or_generate_mnemonic(db_path: &Path, ephemeral: bool) -> Result<Mnemonic> {
+        if ephemeral {
+            info!("Generating ephemeral mnemonic (not persisted)");
+            let entropy = rand::random::<[u8; 16]>();
+            return Mnemonic::from_entropy(&entropy)
+                .context("Failed to generate ephemeral mnemonic");
+        }
+
         // Get password from environment variable
         let password = std::env::var("NANDUTI_MNEMONIC_PASSWORD")
             .context("NANDUTI_MNEMONIC_PASSWORD environment variable not set. This is required to encrypt wallet mnemonics securely.")?;

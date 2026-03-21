@@ -135,7 +135,8 @@ impl NwcHandler {
                     .await
             }
             ParsedMethod::Known(NwcMethod::LookupInvoice) => {
-                self.handle_lookup_invoice(context.request.params).await
+                self.handle_lookup_invoice(context.request.params, sender_pubkey)
+                    .await
             }
             ParsedMethod::Known(NwcMethod::MultiPayInvoice | NwcMethod::MultiPayKeysend) => {
                 let method_str = method.as_str();
@@ -447,18 +448,18 @@ impl NwcHandler {
             .map(|d| d.to_string())
             .unwrap_or_else(|| "Payment".to_string());
 
-        // Select a federation, filtering to the connection's allowed set
-        let allowed_filter = if let Some(storage) = &self.storage {
+        // Load connection for federation filtering and metadata
+        let connection = if let Some(storage) = &self.storage {
             storage
                 .get_connection(sender_pubkey)
                 .context("Failed to lookup connection")?
-                .map(|c| c.allowed_federations)
         } else {
             None
         };
+        let allowed_filter = connection.as_ref().map(|c| &c.allowed_federations);
         let federation = self
             .router
-            .select_federation_for_receive_filtered(allowed_filter.as_ref())
+            .select_federation_for_receive_filtered(allowed_filter)
             .await?;
 
         let federation_id = &federation.id;
@@ -474,7 +475,15 @@ impl NwcHandler {
             .make_invoice(amount, description, params.expiry.map(|e| e.as_secs()))
             .await?;
 
-        // Create transaction record
+        // Create transaction record with connection metadata so the invoice
+        // appears in this connection's list_transactions response
+        let metadata = connection.as_ref().map(|conn| {
+            serde_json::json!({
+                "connection_id": conn.id,
+                "sender_pubkey": sender_pubkey.as_str()
+            })
+        });
+
         let transaction = Transaction {
             id: {
                 let uuid = uuid::Uuid::new_v4();
@@ -491,7 +500,7 @@ impl NwcHandler {
             fees_paid: None,
             created_at: Timestamp::now(),
             settled_at: None,
-            metadata: None,
+            metadata,
         };
 
         // Store transaction
@@ -900,7 +909,11 @@ impl NwcHandler {
     }
 
     /// Handle lookup_invoice request
-    async fn handle_lookup_invoice(&self, params: Value) -> Result<NwcResponse> {
+    async fn handle_lookup_invoice(
+        &self,
+        params: Value,
+        sender_pubkey: &nanduti_core::models::PublicKey,
+    ) -> Result<NwcResponse> {
         // Parse payment hash or invoice from params
         let payment_hash = params
             .get("payment_hash")
@@ -911,6 +924,16 @@ impl NwcHandler {
             .get("invoice")
             .and_then(|v| v.as_str())
             .map(String::from);
+
+        // Load the requesting connection's ID for scoping
+        let connection_id = if let Some(storage) = &self.storage {
+            storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?
+                .map(|c| c.id)
+        } else {
+            None
+        };
 
         // Look up transaction by payment hash or invoice
         let transaction = if let Some(hash) = payment_hash {
@@ -936,6 +959,18 @@ impl NwcHandler {
                 "Missing payment_hash or invoice parameter".to_string(),
             ));
         };
+
+        // Scope to the requesting connection: only return transactions that
+        // belong to this connection (or have no connection metadata, e.g. REST-created).
+        let transaction = transaction.filter(|tx| {
+            match (&connection_id, &tx.metadata) {
+                (Some(conn_id), Some(meta)) => {
+                    meta.get("connection_id").and_then(|v| v.as_str()) == Some(conn_id)
+                }
+                // No connection tracking (no storage or no metadata) — allow
+                _ => true,
+            }
+        });
 
         // Check if transaction was found
         if let Some(tx) = transaction {

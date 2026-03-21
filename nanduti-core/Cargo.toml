@@ -54,6 +54,7 @@ nostr = { workspace = true }
 
 # Utils
 urlencoding = { workspace = true }
+tempfile = "3.8"
 
 [dev-dependencies]
 tempfile = "3.8"

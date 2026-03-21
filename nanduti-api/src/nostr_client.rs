@@ -104,9 +104,11 @@ impl NostrClient {
         let content = capabilities.join(" ");
 
         let event_builder = EventBuilder::new(Kind::from(13194), content).tags(vec![
+            // Only advertise nip44_v2 — we only implement nip44 decryption,
+            // so advertising nip04 would cause clients to send messages we can't read.
             Tag::custom(
                 TagKind::Custom("encryption".into()),
-                vec!["nip44_v2".to_string(), "nip04".to_string()],
+                vec!["nip44_v2".to_string()],
             ),
             Tag::custom(TagKind::Custom("notifications".into()), notifications),
         ]);

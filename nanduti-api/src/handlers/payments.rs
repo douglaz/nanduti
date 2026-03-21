@@ -93,10 +93,15 @@ pub async fn pay_invoice(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Pay the invoice
-    let result = client
-        .pay_invoice(&invoice)
-        .await
-        .map_err(|e| (StatusCode::PAYMENT_REQUIRED, e.to_string()))?;
+    let result = match client.pay_invoice(&invoice).await {
+        Ok(result) => result,
+        Err(e) => {
+            // Mark transaction as Failed so it doesn't look in-flight forever
+            transaction.state = TransactionState::Failed;
+            let _ = state.storage.store_transaction(&transaction);
+            return Err((StatusCode::PAYMENT_REQUIRED, e.to_string()));
+        }
+    };
 
     // Update transaction with settlement details
     transaction.state = TransactionState::Settled;

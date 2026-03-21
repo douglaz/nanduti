@@ -307,7 +307,6 @@ pub struct CreateInvoiceResponse {
     pub invoice: Bolt11String,
     pub payment_hash: PaymentHash,
     pub amount: Amount,
-    pub amount_msats: u64,
     pub federation_id: FederationId,
 }
 
