@@ -64,6 +64,7 @@ impl LightningOperation {
             expiry,
             payee_pubkey,
             created_at,
+            operation_id: None,
         })
     }
 

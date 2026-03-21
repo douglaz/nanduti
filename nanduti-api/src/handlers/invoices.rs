@@ -55,7 +55,7 @@ pub async fn create_invoice(
     };
 
     // Get client
-    let client = federation.client.ok_or_else(|| {
+    let client = federation.client.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             "Federation client not available".to_string(),
@@ -93,6 +93,23 @@ pub async fn create_invoice(
         .storage
         .store_transaction(&transaction)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Spawn background task to watch for invoice settlement
+    if let (Some(op_id), Some(client_ref)) = (&invoice.operation_id, &federation.client) {
+        let op_id = op_id.clone();
+        let client_ref = client_ref.clone();
+        let payment_hash = invoice.payment_hash.clone();
+        let storage = state.storage.clone();
+        tokio::spawn(async move {
+            if let Ok(true) = client_ref.await_invoice_settlement(&op_id).await {
+                if let Ok(Some(mut tx)) = storage.get_transaction_by_payment_hash(&payment_hash) {
+                    tx.state = TransactionState::Settled;
+                    tx.settled_at = Some(Timestamp::now());
+                    let _ = storage.store_transaction(&tx);
+                }
+            }
+        });
+    }
 
     Ok(Json(CreateInvoiceResponse {
         invoice: invoice.bolt11,

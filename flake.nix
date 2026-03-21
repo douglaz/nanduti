@@ -15,9 +15,20 @@
           overlays = [ (import rust-overlay) ];
         };
         
+        # Derive the musl target triple from the Nix system so that ARM
+        # builds produce ARM binaries instead of hardcoding x86_64.
+        muslTarget = {
+          "x86_64-linux"  = "x86_64-unknown-linux-musl";
+          "aarch64-linux" = "aarch64-unknown-linux-musl";
+        }.${system} or (builtins.throw "Unsupported system for musl build: ${system}");
+
+        # Cargo env var prefix uses uppercase and underscores
+        muslTargetEnv = builtins.replaceStrings ["-"] ["_"] muslTarget;
+        muslTargetEnvUpper = pkgs.lib.strings.toUpper muslTargetEnv;
+
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" ];
-          targets = [ "x86_64-unknown-linux-musl" ];
+          targets = [ muslTarget ];
         };
       in
       {
@@ -31,45 +42,45 @@
           pname = "nanduti";
           version = "0.1.0";
           src = ./.;
-          
+
           cargoLock = {
             lockFile = ./Cargo.lock;
           };
-          
+
           nativeBuildInputs = with pkgs; [
             pkg-config
             rustToolchain
             pkgsStatic.stdenv.cc
           ];
-          
+
           buildInputs = with pkgs.pkgsStatic; [
             # Add any static libraries if needed
           ];
-          
+
           # Force cargo to use the musl target
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
-          CC_x86_64_unknown_linux_musl = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
+          "CARGO_TARGET_${muslTargetEnvUpper}_LINKER" = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
+          "CC_${muslTargetEnv}" = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
           CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-static";
-          
+
           # Override buildPhase to use the correct target
           buildPhase = ''
             runHook preBuild
-            
-            echo "Building with musl target for static binary..."
+
+            echo "Building with musl target ${muslTarget} for static binary..."
             cargo build \
               --release \
-              --target x86_64-unknown-linux-musl \
+              --target ${muslTarget} \
               --offline \
               -j $NIX_BUILD_CORES
-            
+
             runHook postBuild
           '';
-          
+
           installPhase = ''
             runHook preInstall
-            
+
             mkdir -p $out/bin
-            cp target/x86_64-unknown-linux-musl/release/nanduti $out/bin/
+            cp target/${muslTarget}/release/nanduti $out/bin/
             
             runHook postInstall
           '';

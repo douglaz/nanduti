@@ -478,7 +478,7 @@ impl FedimintClientWrapper {
                 .context("Invalid invoice description")?,
         );
 
-        let (_operation_id, invoice, _preimage) = ln_module
+        let (operation_id, invoice, _preimage) = ln_module
             .create_bolt11_invoice(
                 fedimint_amount,
                 invoice_description,
@@ -499,6 +499,7 @@ impl FedimintClientWrapper {
             expiry: expiry.map(Expiry::from_secs),
             payee_pubkey: None,
             created_at: Some(invoice.timestamp()),
+            operation_id: Some(hex::encode(operation_id.0)),
         })
     }
 
@@ -512,6 +513,45 @@ impl FedimintClientWrapper {
         // Fedimint doesn't directly support keysend yet
         // This would need to be implemented as a custom module or gateway feature
         bail!("Keysend payments are not yet supported by Fedimint")
+    }
+
+    /// Subscribe to an invoice's settlement status.
+    ///
+    /// Watches the Fedimint operation for the given `operation_id` (hex-encoded)
+    /// and returns `true` when the invoice is claimed (paid), or `false` if
+    /// cancelled. This should be spawned as a background task after creating
+    /// an invoice so the transaction state can be updated on settlement.
+    pub async fn await_invoice_settlement(&self, operation_id_hex: &str) -> Result<bool> {
+        use fedimint_ln_client::LnReceiveState;
+        use futures::StreamExt;
+
+        let bytes = hex::decode(operation_id_hex).context("Invalid operation_id hex")?;
+        let op_id = fedimint_core::core::OperationId(
+            bytes
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Operation ID must be 32 bytes"))?,
+        );
+
+        let ln_module = self
+            .client
+            .get_first_module::<LightningClientModule>()
+            .context("Lightning module not available")?;
+
+        let mut stream = ln_module
+            .subscribe_ln_receive(op_id)
+            .await
+            .context("Failed to subscribe to invoice settlement")?
+            .into_stream();
+
+        while let Some(state) = stream.next().await {
+            match state {
+                LnReceiveState::Claimed => return Ok(true),
+                LnReceiveState::Canceled { .. } => return Ok(false),
+                _ => continue, // AwaitingFunds, etc.
+            }
+        }
+
+        Ok(false)
     }
 
     /// Fetch vetted gateway IDs from the meta module

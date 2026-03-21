@@ -11,13 +11,13 @@ services:
       - ./data:/data
     environment:
       - RUST_LOG=info,nanduti=debug
-    command: 
-      - server
+    command:
+      - serve
       - --port
       - "3517"
       - --data-dir
       - /data
-      - --nostr-relay
+      - --relay
       - wss://relay.damus.io
-      - --nostr-relay
+      - --relay
       - wss://relay.primal.net

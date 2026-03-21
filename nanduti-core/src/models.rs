@@ -99,6 +99,10 @@ pub struct Invoice {
     pub expiry: Option<Expiry>,
     pub payee_pubkey: Option<PublicKey>,
     pub created_at: Option<SystemTime>,
+    /// Fedimint operation ID for tracking invoice settlement (hex-encoded).
+    /// Only present for invoices created through Fedimint backends.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub operation_id: Option<String>,
 }
 
 impl From<&lightning_invoice::Bolt11Invoice> for Invoice {
@@ -118,6 +122,7 @@ impl From<&lightning_invoice::Bolt11Invoice> for Invoice {
             expiry: Some(Expiry(bolt11.expiry_time().as_secs())),
             payee_pubkey: bolt11.payee_pub_key().map(|k| PublicKey(k.to_string())),
             created_at: Some(bolt11.timestamp()),
+            operation_id: None,
         }
     }
 }

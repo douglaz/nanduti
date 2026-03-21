@@ -56,11 +56,16 @@ impl FederationRouter {
     ) -> Result<Federation> {
         let federations = self.federation_manager.list_federations().await;
 
+        // Reserve a 1% fee margin so federations with barely enough balance
+        // aren't selected only to fail when routing fees are added.
+        let amount_with_margin =
+            Amount::from_msats(amount.as_msats().saturating_add(amount.as_msats() / 100));
+
         // Filter to online federations with sufficient balance (and allowed by connection)
         let available: Vec<Federation> = federations
             .into_iter()
             .filter(|f| f.status == FederationStatus::Online)
-            .filter(|f| f.balance >= amount)
+            .filter(|f| f.balance >= amount_with_margin)
             .filter(|f| allowed.map(|filter| filter.allows(&f.id)).unwrap_or(true))
             .collect();
 

@@ -10,8 +10,8 @@ use nanduti_core::{
         TransactionState, TransactionType,
     },
     nwc_protocol::{
-        ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcNotificationType,
-        NwcRequestContext, NwcResponse, ParsedMethod, PayInvoiceParams, PayKeysendParams,
+        ListTransactionsParams, MakeInvoiceParams, NwcErrorCode, NwcMethod, NwcRequestContext,
+        NwcResponse, ParsedMethod, PayInvoiceParams, PayKeysendParams,
     },
     storage::Storage,
 };
@@ -124,7 +124,9 @@ impl NwcHandler {
                 self.handle_make_invoice(context.request.params, sender_pubkey)
                     .await
             }
-            ParsedMethod::Known(NwcMethod::GetBalance) => self.handle_get_balance().await,
+            ParsedMethod::Known(NwcMethod::GetBalance) => {
+                self.handle_get_balance(sender_pubkey).await
+            }
             ParsedMethod::Known(NwcMethod::ListTransactions) => {
                 self.handle_list_transactions(context.request.params, sender_pubkey)
                     .await
@@ -252,7 +254,11 @@ impl NwcHandler {
                     .get_daily_spent(&connection.id, day_start)
                     .context("Failed to get daily spending")?;
 
-                let total_after_payment = daily_spent.saturating_add(amount.as_msats());
+                // Reserve a fee margin (1%) so routing fees don't push
+                // spending over the limit after the payment succeeds.
+                let amount_with_fee_margin =
+                    amount.as_msats().saturating_add(amount.as_msats() / 100);
+                let total_after_payment = daily_spent.saturating_add(amount_with_fee_margin);
 
                 if total_after_payment > daily_limit {
                     warn!(
@@ -508,13 +514,70 @@ impl NwcHandler {
             storage.store_transaction(&transaction)?;
         }
 
+        // Spawn a background task to watch for invoice settlement so the
+        // transaction transitions from Pending to Settled when payment arrives.
+        if let (Some(op_id), Some(client)) = (&invoice.operation_id, &federation.client) {
+            let op_id = op_id.clone();
+            let client = client.clone();
+            let tx_id = transaction.id.clone();
+            let fed_id = federation.id.clone();
+            let payment_hash = transaction.payment_hash.clone();
+            let storage = self.storage.clone();
+            tokio::spawn(async move {
+                match client.await_invoice_settlement(&op_id).await {
+                    Ok(true) => {
+                        info!("Invoice {tx_id} settled on federation {fed_id}");
+                        if let Some(storage) = &storage {
+                            if let Ok(Some(mut tx)) =
+                                storage.get_transaction_by_payment_hash(&payment_hash)
+                            {
+                                tx.state = TransactionState::Settled;
+                                tx.settled_at = Some(Timestamp::now());
+                                let _ = storage.store_transaction(&tx);
+                            }
+                        }
+                    }
+                    Ok(false) => {
+                        warn!("Invoice {tx_id} cancelled on federation {fed_id}");
+                    }
+                    Err(e) => {
+                        warn!("Failed to watch invoice {tx_id} settlement: {e}");
+                    }
+                }
+            });
+        }
+
         Ok(NwcResponse::make_invoice(invoice, transaction))
     }
 
     /// Handle get_balance request
-    async fn handle_get_balance(&self) -> Result<NwcResponse> {
-        let balance = self.federation_manager.get_total_balance().await;
-        Ok(NwcResponse::get_balance(balance.as_msats()))
+    async fn handle_get_balance(
+        &self,
+        sender_pubkey: &nanduti_core::models::PublicKey,
+    ) -> Result<NwcResponse> {
+        // Load connection to filter balance by allowed federations
+        let allowed_filter = if let Some(storage) = &self.storage {
+            storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?
+                .map(|c| c.allowed_federations)
+        } else {
+            None
+        };
+
+        // Sum balance only from federations this connection is allowed to use
+        let mut total_msats = 0u64;
+        for federation in self.federation_manager.list_federations().await {
+            let allowed = allowed_filter
+                .as_ref()
+                .map(|f| f.allows(&federation.id))
+                .unwrap_or(true);
+            if allowed {
+                total_msats = total_msats.saturating_add(federation.balance.as_msats());
+            }
+        }
+
+        Ok(NwcResponse::get_balance(total_msats))
     }
 
     /// Handle list_transactions request
@@ -656,10 +719,9 @@ impl NwcHandler {
             NwcMethod::LookupInvoice,
         ];
 
-        let notifications = vec![
-            NwcNotificationType::PaymentReceived,
-            NwcNotificationType::PaymentSent,
-        ];
+        // Don't advertise notifications until we actually emit them.
+        // TODO: Enable once invoice settlement watcher sends notifications.
+        let notifications = vec![];
 
         // Use the actual wallet's Nostr public key
         let pubkey = self.nostr_client.public_key();
@@ -755,7 +817,11 @@ impl NwcHandler {
                     .get_daily_spent(&connection.id, day_start)
                     .context("Failed to get daily spending")?;
 
-                let total_after_payment = daily_spent.saturating_add(amount.as_msats());
+                // Reserve a fee margin (1%) so routing fees don't push
+                // spending over the limit after the payment succeeds.
+                let amount_with_fee_margin =
+                    amount.as_msats().saturating_add(amount.as_msats() / 100);
+                let total_after_payment = daily_spent.saturating_add(amount_with_fee_margin);
 
                 if total_after_payment > daily_limit {
                     warn!(
