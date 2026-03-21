@@ -80,7 +80,9 @@ pub async fn create_nwc_connection(
             "pay_invoice".to_string(),
             "make_invoice".to_string(),
             "get_balance".to_string(),
+            "get_info".to_string(),
             "list_transactions".to_string(),
+            "lookup_invoice".to_string(),
         ]),
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

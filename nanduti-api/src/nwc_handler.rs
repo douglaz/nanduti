@@ -121,7 +121,8 @@ impl NwcHandler {
                     .await
             }
             ParsedMethod::Known(NwcMethod::MakeInvoice) => {
-                self.handle_make_invoice(context.request.params).await
+                self.handle_make_invoice(context.request.params, sender_pubkey)
+                    .await
             }
             ParsedMethod::Known(NwcMethod::GetBalance) => self.handle_get_balance().await,
             ParsedMethod::Known(NwcMethod::ListTransactions) => {
@@ -302,8 +303,23 @@ impl NwcHandler {
             }
         }
 
-        // Select federation
-        let federation = self.router.select_federation(amount).await?;
+        // Load connection once for federation filtering and metadata
+        let connection = if let Some(storage) = &self.storage {
+            storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?
+        } else {
+            None
+        };
+
+        // Select federation, filtering to the connection's allowed set so that
+        // restricted connections don't get spurious rejections when the router
+        // picks a cheaper but unauthorized federation.
+        let allowed_filter = connection.as_ref().map(|c| &c.allowed_federations);
+        let federation = self
+            .router
+            .select_federation_filtered(amount, allowed_filter)
+            .await?;
 
         info!(
             "Paying invoice via federation {} for {} msats",
@@ -311,51 +327,18 @@ impl NwcHandler {
             amount.as_msats()
         );
 
-        // Check if federation is allowed (only if storage is enabled with connection)
-        if let Some(storage) = &self.storage {
-            if let Some(connection) = storage
-                .get_connection(sender_pubkey)
-                .context("Failed to lookup connection for federation check")?
-            {
-                // Check federation restriction
-                if !connection.allowed_federations.allows(&federation.id) {
-                    warn!(
-                        "Connection {} attempted to use restricted federation: {}",
-                        connection.id, federation.id
-                    );
-                    return Ok(NwcResponse::error(
-                        "pay_invoice".to_string(),
-                        NwcErrorCode::Restricted,
-                        format!(
-                            "Federation {} is not allowed for this connection",
-                            federation.id
-                        ),
-                    ));
-                }
-            }
-        }
-
         // Store initial transaction before payment
         let uuid = uuid::Uuid::new_v4();
         let transaction_id = TransactionId::new(format!("tx_{uuid}"));
         let created_at = Timestamp::now();
 
         // Create metadata with connection_id for tracking
-        let metadata = if let Some(storage) = &self.storage {
-            if let Some(connection) = storage
-                .get_connection(sender_pubkey)
-                .context("Failed to lookup connection for metadata")?
-            {
-                Some(serde_json::json!({
-                    "connection_id": connection.id,
-                    "sender_pubkey": sender_pubkey.as_str()
-                }))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let metadata = connection.as_ref().map(|conn| {
+            serde_json::json!({
+                "connection_id": conn.id,
+                "sender_pubkey": sender_pubkey.as_str()
+            })
+        });
 
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
@@ -436,14 +419,11 @@ impl NwcHandler {
             storage.store_transaction(&transaction)?;
 
             // Increment connection's spent amount after successful payment
-            if let Some(connection) = storage
-                .get_connection(sender_pubkey)
-                .context("Failed to lookup connection for spending update")?
-            {
+            if let Some(conn) = &connection {
                 let total_amount =
                     amount.as_msats() + result.fees_paid.map(|f| f.as_msats()).unwrap_or(0);
                 storage
-                    .increment_connection_spent(&connection.id, total_amount)
+                    .increment_connection_spent(&conn.id, total_amount)
                     .context("Failed to increment connection spent")?;
             }
         }
@@ -452,7 +432,11 @@ impl NwcHandler {
     }
 
     /// Handle make_invoice request
-    async fn handle_make_invoice(&self, params: Value) -> Result<NwcResponse> {
+    async fn handle_make_invoice(
+        &self,
+        params: Value,
+        sender_pubkey: &nanduti_core::models::PublicKey,
+    ) -> Result<NwcResponse> {
         let params: MakeInvoiceParams =
             serde_json::from_value(params).context("Invalid make_invoice parameters")?;
 
@@ -463,8 +447,19 @@ impl NwcHandler {
             .map(|d| d.to_string())
             .unwrap_or_else(|| "Payment".to_string());
 
-        // Select a federation (round-robin or least loaded)
-        let federation = self.router.select_federation_for_receive().await?;
+        // Select a federation, filtering to the connection's allowed set
+        let allowed_filter = if let Some(storage) = &self.storage {
+            storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?
+                .map(|c| c.allowed_federations)
+        } else {
+            None
+        };
+        let federation = self
+            .router
+            .select_federation_for_receive_filtered(allowed_filter.as_ref())
+            .await?;
 
         let federation_id = &federation.id;
         let amount_msats = amount.as_msats();
@@ -770,8 +765,21 @@ impl NwcHandler {
             }
         }
 
-        // Select federation
-        let federation = self.router.select_federation(amount).await?;
+        // Load connection once for federation filtering and metadata
+        let connection = if let Some(storage) = &self.storage {
+            storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?
+        } else {
+            None
+        };
+
+        // Select federation, filtering to the connection's allowed set
+        let allowed_filter = connection.as_ref().map(|c| &c.allowed_federations);
+        let federation = self
+            .router
+            .select_federation_filtered(amount, allowed_filter)
+            .await?;
 
         let federation_id = &federation.id;
         let amount_msats = amount.as_msats();
@@ -779,30 +787,6 @@ impl NwcHandler {
         info!(
             "Sending keysend via federation {federation_id} for {amount_msats} msats to {pubkey}"
         );
-
-        // Check if federation is allowed (only if storage is enabled with connection)
-        if let Some(storage) = &self.storage {
-            if let Some(connection) = storage
-                .get_connection(sender_pubkey)
-                .context("Failed to lookup connection for federation check")?
-            {
-                // Check federation restriction
-                if !connection.allowed_federations.allows(&federation.id) {
-                    warn!(
-                        "Connection {} attempted to use restricted federation: {}",
-                        connection.id, federation.id
-                    );
-                    return Ok(NwcResponse::error(
-                        "pay_keysend".to_string(),
-                        NwcErrorCode::Restricted,
-                        format!(
-                            "Federation {} is not allowed for this connection",
-                            federation.id
-                        ),
-                    ));
-                }
-            }
-        }
 
         // Store initial transaction before payment
         let uuid = uuid::Uuid::new_v4();
@@ -812,21 +796,12 @@ impl NwcHandler {
         let description = Some(Description::new(format!("Keysend to {pubkey}")));
 
         // Create metadata with connection_id for tracking
-        let metadata = if let Some(storage) = &self.storage {
-            if let Some(connection) = storage
-                .get_connection(sender_pubkey)
-                .context("Failed to lookup connection for metadata")?
-            {
-                Some(serde_json::json!({
-                    "connection_id": connection.id,
-                    "sender_pubkey": sender_pubkey.as_str()
-                }))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let metadata = connection.as_ref().map(|conn| {
+            serde_json::json!({
+                "connection_id": conn.id,
+                "sender_pubkey": sender_pubkey.as_str()
+            })
+        });
 
         if let Some(storage) = &self.storage {
             let transaction = Transaction {
@@ -912,14 +887,11 @@ impl NwcHandler {
             storage.store_transaction(&transaction)?;
 
             // Increment connection's spent amount after successful payment
-            if let Some(connection) = storage
-                .get_connection(sender_pubkey)
-                .context("Failed to lookup connection for spending update")?
-            {
+            if let Some(conn) = &connection {
                 let total_amount =
                     amount.as_msats() + result.fees_paid.map(|f| f.as_msats()).unwrap_or(0);
                 storage
-                    .increment_connection_spent(&connection.id, total_amount)
+                    .increment_connection_spent(&conn.id, total_amount)
                     .context("Failed to increment connection spent")?;
             }
         }

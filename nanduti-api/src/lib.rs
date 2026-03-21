@@ -14,7 +14,7 @@ pub use server::Server;
 pub use state::AppState;
 pub use types::*;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use nanduti_core::models::Amount;
 use std::sync::Arc;
 use tracing::info;
@@ -37,6 +37,30 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
         .await?,
     );
 
+    // Seed federations from CLI/env invite codes
+    for invite_str in &config.federations {
+        match std::str::FromStr::from_str(invite_str) {
+            Ok(invite_code) => {
+                match app_state
+                    .federation_manager
+                    .add_federation(&invite_code)
+                    .await
+                {
+                    Ok(federation_id) => {
+                        info!("Added federation from startup config: {federation_id}");
+                    }
+                    Err(e) => {
+                        // Log but don't fail startup — federation may already exist
+                        tracing::warn!("Failed to add federation from invite code: {e}");
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Invalid federation invite code: {e}");
+            }
+        }
+    }
+
     // Publish info event
     publish_info_event(&app_state.nostr_client).await?;
 
@@ -50,7 +74,11 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     });
 
     // Create HTTP server with REST API routes
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], config.port));
+    let ip: std::net::IpAddr = config
+        .host
+        .parse()
+        .with_context(|| format!("Invalid host address: {}", config.host))?;
+    let addr = std::net::SocketAddr::from((ip, config.port));
     let http_router = create_http_router(app_state.clone());
     let server = Server::new(http_router, addr);
 
@@ -148,4 +176,6 @@ pub struct ServerConfig {
     pub routing_strategy: RoutingStrategy,
     pub max_payment_amount: Option<Amount>,
     pub daily_limit_amount: Option<Amount>,
+    /// Fedimint invite codes to join on startup
+    pub federations: Vec<String>,
 }

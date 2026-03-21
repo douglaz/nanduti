@@ -229,18 +229,27 @@ impl NostrClient {
         const EVENT_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(10000).unwrap();
         let mut processed_events = LruCache::new(EVENT_CACHE_CAPACITY);
 
-        // Subscribe to NWC request events (kind 23194) sent to us
-        let filter = Filter::new()
+        // Subscribe to NWC request events (kind 23194) sent to us.
+        // Use a `since` filter set to the current time so we only process events
+        // that arrive after the server starts, preventing replay of historical
+        // requests (which could re-trigger payments after a restart).
+        let now = Timestamp::now();
+        let base_filter = Filter::new()
             .kind(Kind::from(23194))
             .pubkey(self.keys.public_key());
+        let filter = base_filter.clone().since(now);
 
         info!(
-            "Listening for NWC requests on {relay_count} relays",
+            "Listening for NWC requests on {relay_count} relays (since {now})",
             relay_count = self.client.relays().await.len()
         );
 
         // Use proper event streaming (subscribe and poll)
         self.client.subscribe(filter.clone(), None).await?;
+
+        // Track the latest event timestamp we've seen so we can advance the
+        // `since` window and avoid re-scanning already-processed events.
+        let mut latest_seen = now;
 
         // Circuit breaker for error handling
         let mut consecutive_errors = 0;
@@ -250,8 +259,9 @@ impl NostrClient {
 
         // Poll for events continuously
         loop {
-            // Get new events from database
-            match self.client.database().query(filter.clone()).await {
+            // Query only for events newer than the last one we processed
+            let poll_filter = base_filter.clone().since(latest_seen);
+            match self.client.database().query(poll_filter).await {
                 Ok(events) => {
                     consecutive_errors = 0; // Reset error counter on success
 
@@ -259,6 +269,11 @@ impl NostrClient {
                         // Skip if we've already processed this event
                         if processed_events.contains(&event.id) {
                             continue;
+                        }
+
+                        // Advance the since window so future queries skip older events
+                        if event.created_at > latest_seen {
+                            latest_seen = event.created_at;
                         }
 
                         // Mark as processed (LRU cache automatically evicts oldest when full)

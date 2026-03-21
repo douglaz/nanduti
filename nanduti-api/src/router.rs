@@ -41,13 +41,27 @@ impl FederationRouter {
 
     /// Select a federation for payment
     pub async fn select_federation(&self, amount: Amount) -> Result<Federation> {
+        self.select_federation_filtered(amount, None).await
+    }
+
+    /// Select a federation for payment, optionally restricted to allowed federations.
+    ///
+    /// When `allowed` is `Some`, only federations whose ID passes the filter will be
+    /// considered. This prevents the router from picking a federation that the
+    /// connection is not authorized to use, which would cause a spurious rejection.
+    pub async fn select_federation_filtered(
+        &self,
+        amount: Amount,
+        allowed: Option<&nanduti_core::models::FederationFilter>,
+    ) -> Result<Federation> {
         let federations = self.federation_manager.list_federations().await;
 
-        // Filter to online federations with sufficient balance
+        // Filter to online federations with sufficient balance (and allowed by connection)
         let available: Vec<Federation> = federations
             .into_iter()
             .filter(|f| f.status == FederationStatus::Online)
             .filter(|f| f.balance >= amount)
+            .filter(|f| allowed.map(|filter| filter.allows(&f.id)).unwrap_or(true))
             .collect();
 
         if available.is_empty() {
@@ -67,12 +81,21 @@ impl FederationRouter {
 
     /// Select a federation for receiving payments
     pub async fn select_federation_for_receive(&self) -> Result<Federation> {
+        self.select_federation_for_receive_filtered(None).await
+    }
+
+    /// Select a federation for receiving, optionally restricted to allowed federations.
+    pub async fn select_federation_for_receive_filtered(
+        &self,
+        allowed: Option<&nanduti_core::models::FederationFilter>,
+    ) -> Result<Federation> {
         let federations = self.federation_manager.list_federations().await;
 
-        // Filter to online federations
+        // Filter to online federations (and allowed by connection)
         let available: Vec<Federation> = federations
             .into_iter()
             .filter(|f| f.status == FederationStatus::Online)
+            .filter(|f| allowed.map(|filter| filter.allows(&f.id)).unwrap_or(true))
             .collect();
 
         if available.is_empty() {

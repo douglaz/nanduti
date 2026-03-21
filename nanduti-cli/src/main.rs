@@ -374,6 +374,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         routing_strategy: args.routing_strategy.into(),
         max_payment_amount: args.max_payment_sats.map(Amount::from_sats),
         daily_limit_amount: args.daily_limit_sats.map(Amount::from_sats),
+        federations: args.federations,
     };
 
     // Start server

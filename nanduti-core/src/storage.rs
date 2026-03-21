@@ -118,8 +118,51 @@ impl Storage {
                 )
             }
             None => {
-                info!("Running in memory-only mode (no persistence)");
-                (None, None, None, None, None, None, None)
+                info!("Running in memory-only mode (transient sled storage)");
+
+                // Use a temporary sled database so that in-memory mode still has
+                // functioning storage for the lifetime of the process. Without this,
+                // all store_* methods become silent no-ops and features like NWC
+                // connections break immediately after creation.
+                let db = sled::Config::new()
+                    .temporary(true)
+                    .open()
+                    .context("Failed to open temporary sled database")?;
+
+                let federations = Some(
+                    db.open_tree("federations")
+                        .context("Failed to open federations tree")?,
+                );
+                let connections = Some(
+                    db.open_tree("connections")
+                        .context("Failed to open connections tree")?,
+                );
+                let transactions = Some(
+                    db.open_tree("transactions")
+                        .context("Failed to open transactions tree")?,
+                );
+                let tx_by_payment_hash = Some(
+                    db.open_tree("idx_tx_payment_hash")
+                        .context("Failed to open tx_by_payment_hash index")?,
+                );
+                let tx_by_invoice = Some(
+                    db.open_tree("idx_tx_invoice")
+                        .context("Failed to open tx_by_invoice index")?,
+                );
+                let conn_by_pubkey = Some(
+                    db.open_tree("idx_conn_pubkey")
+                        .context("Failed to open conn_by_pubkey index")?,
+                );
+
+                (
+                    Some(Arc::new(db)),
+                    federations,
+                    connections,
+                    transactions,
+                    tx_by_payment_hash,
+                    tx_by_invoice,
+                    conn_by_pubkey,
+                )
             }
         };
 
@@ -878,11 +921,12 @@ mod tests {
         let tx = create_test_transaction("tx-memory");
         storage.store_transaction(&tx)?;
 
-        // In memory mode, transactions aren't actually stored
-        // (because self.transactions is None)
+        // In memory mode, transactions are stored in a temporary sled database
+        // that lives for the lifetime of the process
         let retrieved =
             storage.get_transactions_by_payment_hash(&PaymentHash::new("abc123".to_string()))?;
-        assert_eq!(retrieved.len(), 0);
+        assert_eq!(retrieved.len(), 1);
+        assert_eq!(retrieved[0].id.as_str(), "tx-memory");
 
         Ok(())
     }
