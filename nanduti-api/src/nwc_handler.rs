@@ -47,6 +47,50 @@ impl NwcHandler {
         }
     }
 
+    /// Validate that the sender has an active connection and is allowed to call the given method.
+    ///
+    /// Returns the connection if authorized, or an `NwcResponse` error to send back.
+    fn authorize_connection(
+        &self,
+        sender_pubkey: &nanduti_core::models::PublicKey,
+        method_name: &str,
+    ) -> Result<Result<Option<nanduti_core::storage::NwcConnection>, NwcResponse>> {
+        if let Some(storage) = &self.storage {
+            let connection = storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?;
+
+            match connection {
+                Some(conn) => {
+                    if !conn.allowed_methods.allows(method_name) {
+                        warn!(
+                            "Connection {} attempted to use restricted method: {method_name}",
+                            conn.id
+                        );
+                        return Ok(Err(NwcResponse::error(
+                            method_name.to_string(),
+                            NwcErrorCode::Restricted,
+                            format!("Method {method_name} is not allowed for this connection"),
+                        )));
+                    }
+                    Ok(Ok(Some(conn)))
+                }
+                None => {
+                    warn!(
+                        "Unauthorized {method_name} attempt from unknown pubkey: {sender_pubkey}"
+                    );
+                    Ok(Err(NwcResponse::error(
+                        method_name.to_string(),
+                        NwcErrorCode::Unauthorized,
+                        "No active connection found for this pubkey".to_string(),
+                    )))
+                }
+            }
+        } else {
+            Ok(Ok(None))
+        }
+    }
+
     /// Handle a NWC request with sender context
     pub async fn handle_request(&self, context: NwcRequestContext) -> Result<NwcResponse> {
         let sender_pubkey = &context.sender_pubkey;
@@ -55,6 +99,21 @@ impl NwcHandler {
             "Handling NWC request: {} from {sender_pubkey}",
             method.as_str()
         );
+
+        // Enforce connection auth for all known methods before dispatching.
+        // Unknown/unimplemented methods are rejected below without needing auth.
+        if let ParsedMethod::Known(known_method) = method {
+            if !matches!(
+                known_method,
+                NwcMethod::MultiPayInvoice | NwcMethod::MultiPayKeysend
+            ) {
+                let method_name = method.as_str();
+                match self.authorize_connection(sender_pubkey, method_name)? {
+                    Ok(_) => {} // authorized — continue to handler
+                    Err(err_response) => return Ok(err_response),
+                }
+            }
+        }
 
         match method {
             ParsedMethod::Known(NwcMethod::PayInvoice) => {
@@ -542,7 +601,7 @@ impl NwcHandler {
         }
 
         // Sort by created_at descending
-        all_transactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        all_transactions.sort_by_key(|tx| std::cmp::Reverse(tx.created_at));
 
         // Apply offset (skip first N transactions)
         if let Some(offset) = params.offset {

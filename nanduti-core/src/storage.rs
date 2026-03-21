@@ -326,9 +326,28 @@ impl Storage {
             tree.insert(transaction_id.as_bytes(), data.as_slice())
                 .context("Failed to store transaction")?;
 
-            // Update payment_hash index
+            // Update payment_hash index (stores a JSON array of tx IDs to support
+            // multiple transactions sharing the same payment hash, e.g. retries)
             if let Some(idx) = &self.tx_by_payment_hash {
-                idx.insert(payment_hash.as_bytes(), transaction_id.as_bytes())
+                let key = payment_hash.as_bytes();
+                let mut tx_ids: Vec<String> = if let Some(existing) =
+                    idx.get(key).context("Failed to read payment_hash index")?
+                {
+                    serde_json::from_slice(&existing).unwrap_or_else(|_| {
+                        // Migrate legacy single-value entries to array format
+                        let legacy_id = String::from_utf8_lossy(&existing).to_string();
+                        vec![legacy_id]
+                    })
+                } else {
+                    Vec::new()
+                };
+                let tx_id_str = String::from_utf8_lossy(transaction_id.as_bytes()).to_string();
+                if !tx_ids.contains(&tx_id_str) {
+                    tx_ids.push(tx_id_str);
+                }
+                let encoded = serde_json::to_vec(&tx_ids)
+                    .context("Failed to serialize payment_hash index")?;
+                idx.insert(key, encoded.as_slice())
                     .context("Failed to update payment_hash index")?;
             }
 
@@ -395,16 +414,14 @@ impl Storage {
 
                 if transaction.federation_id == *federation_id {
                     transactions.push(transaction);
-
-                    if transactions.len() >= limit {
-                        break;
-                    }
                 }
             }
         }
 
-        // Sort by created_at descending
-        transactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        // Sort by created_at descending BEFORE applying limit so we return the
+        // most recent transactions rather than an arbitrary subset.
+        transactions.sort_by_key(|tx| std::cmp::Reverse(tx.created_at));
+        transactions.truncate(limit);
 
         Ok(transactions)
     }
@@ -425,16 +442,25 @@ impl Storage {
 
         // Try to use index first
         if let (Some(idx), Some(tree)) = (&self.tx_by_payment_hash, &self.transactions) {
-            if let Some(tx_id_bytes) = idx
+            if let Some(raw) = idx
                 .get(payment_hash.as_bytes())
                 .context("Failed to read payment_hash index")?
             {
-                if let Some(data) = tree
-                    .get(&tx_id_bytes)
-                    .context("Failed to read transaction from index lookup")?
-                {
-                    let transaction = self.deserialize_transaction(&data)?;
-                    transactions.push(transaction);
+                // Parse the index value — may be a JSON array of tx IDs or a legacy
+                // single-value entry from before the multi-tx index migration.
+                let tx_ids: Vec<String> = serde_json::from_slice(&raw).unwrap_or_else(|_| {
+                    let legacy_id = String::from_utf8_lossy(&raw).to_string();
+                    vec![legacy_id]
+                });
+
+                for tx_id in &tx_ids {
+                    if let Some(data) = tree
+                        .get(tx_id.as_bytes())
+                        .context("Failed to read transaction from index lookup")?
+                    {
+                        let transaction = self.deserialize_transaction(&data)?;
+                        transactions.push(transaction);
+                    }
                 }
             }
         } else if let Some(tree) = &self.transactions {
@@ -450,7 +476,7 @@ impl Storage {
         }
 
         // Sort by created_at descending (most recent first)
-        transactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        transactions.sort_by_key(|tx| std::cmp::Reverse(tx.created_at));
 
         Ok(transactions)
     }
@@ -610,9 +636,11 @@ impl Storage {
                             // Check if transaction is within the day
                             let tx_timestamp = transaction.created_at.as_secs();
                             if tx_timestamp >= day_start && tx_timestamp < day_end {
-                                // Only count outgoing payments
+                                // Only count settled outgoing payments — pending/failed
+                                // transactions should not consume the daily spending quota
                                 if transaction.transaction_type
                                     == crate::models::TransactionType::Outgoing
+                                    && transaction.state == crate::models::TransactionState::Settled
                                 {
                                     daily_spent =
                                         daily_spent.saturating_add(transaction.amount.as_msats());

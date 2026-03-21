@@ -88,7 +88,7 @@ pub async fn list_transactions(
     }
 
     // Sort by created_at descending
-    all_transactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    all_transactions.sort_by_key(|tx| std::cmp::Reverse(tx.created_at));
 
     // Apply offset (skip first N transactions)
     if let Some(offset) = params.offset {
