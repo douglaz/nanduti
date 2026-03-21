@@ -1001,22 +1001,27 @@ impl NwcHandler {
             None
         };
 
-        // Look up transaction by payment hash or invoice
-        let transaction = if let Some(hash) = payment_hash {
+        // Look up transactions by payment hash or invoice, then filter to this
+        // connection BEFORE selecting a single result. This prevents returning
+        // NOT_FOUND when the newest match belongs to a different connection but
+        // older matches belong to the caller.
+        let candidates: Vec<Transaction> = if let Some(hash) = payment_hash {
             if let Some(storage) = &self.storage {
                 storage
-                    .get_transaction_by_payment_hash(&PaymentHash::new(hash))
+                    .get_transactions_by_payment_hash(&PaymentHash::new(hash))
                     .map_err(|error| anyhow::anyhow!("Failed to lookup transaction: {error}"))?
             } else {
-                None
+                vec![]
             }
         } else if let Some(inv) = invoice {
             if let Some(storage) = &self.storage {
                 storage
                     .get_transaction_by_invoice(&Bolt11String::new(inv))
                     .map_err(|error| anyhow::anyhow!("Failed to lookup transaction: {error}"))?
+                    .into_iter()
+                    .collect()
             } else {
-                None
+                vec![]
             }
         } else {
             return Ok(NwcResponse::error(
@@ -1026,17 +1031,16 @@ impl NwcHandler {
             ));
         };
 
-        // Scope to the requesting connection: only return transactions that
-        // belong to this connection (or have no connection metadata, e.g. REST-created).
-        let transaction = transaction.filter(|tx| {
-            match (&connection_id, &tx.metadata) {
+        // Scope to the requesting connection before picking the best match
+        let transaction = candidates
+            .into_iter()
+            .find(|tx| match (&connection_id, &tx.metadata) {
                 (Some(conn_id), Some(meta)) => {
                     meta.get("connection_id").and_then(|v| v.as_str()) == Some(conn_id)
                 }
                 // No connection tracking (no storage or no metadata) — allow
                 _ => true,
-            }
-        });
+            });
 
         // Check if transaction was found
         if let Some(tx) = transaction {

@@ -491,12 +491,16 @@ impl FedimintClientWrapper {
 
         let payment_hash = hex::encode(invoice.payment_hash().as_ref() as &[u8]);
 
+        // Use the effective expiry (explicit or default) so clients see the
+        // correct deadline even when the caller omitted the expiry parameter.
+        let effective_expiry = expiry.unwrap_or(crate::constants::DEFAULT_INVOICE_EXPIRY_SECS);
+
         Ok(Invoice {
             bolt11: Bolt11String::new(invoice.to_string()),
             payment_hash: PaymentHash::new(payment_hash),
             amount: Some(amount),
             description: Some(Description::new(description)),
-            expiry: expiry.map(Expiry::from_secs),
+            expiry: Some(Expiry::from_secs(effective_expiry)),
             payee_pubkey: None,
             created_at: Some(invoice.timestamp()),
             operation_id: Some(hex::encode(operation_id.0)),

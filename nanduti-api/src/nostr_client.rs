@@ -84,7 +84,7 @@ impl NostrClient {
 
     /// Send info event with default capabilities
     pub async fn publish_info_event(&self) -> Result<()> {
-        use nanduti_core::nwc_protocol::{NwcMethod, NwcNotificationType};
+        use nanduti_core::nwc_protocol::NwcMethod;
 
         // Note: pay_keysend is not advertised because Fedimint doesn't support it yet
         let capabilities = [
@@ -96,11 +96,9 @@ impl NostrClient {
             NwcMethod::LookupInvoice.to_string(),
         ];
 
-        let notifications = vec![
-            NwcNotificationType::PaymentReceived.to_string(),
-            NwcNotificationType::PaymentSent.to_string(),
-        ];
-
+        // Don't advertise notifications until settlement events are actually
+        // emitted — clients that subscribe based on this will wait for pushes
+        // that never arrive. Keep the notifications tag empty.
         let content = capabilities.join(" ");
 
         let event_builder = EventBuilder::new(Kind::from(13194), content).tags(vec![
@@ -110,7 +108,6 @@ impl NostrClient {
                 TagKind::Custom("encryption".into()),
                 vec!["nip44_v2".to_string()],
             ),
-            Tag::custom(TagKind::Custom("notifications".into()), notifications),
         ]);
 
         let event = self.client.sign_event_builder(event_builder).await?;
