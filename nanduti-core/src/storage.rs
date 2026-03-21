@@ -452,16 +452,26 @@ impl Storage {
         Ok(())
     }
 
-    /// Deserialize transaction data, decrypting if necessary
+    /// Deserialize transaction data, decrypting if necessary.
+    ///
+    /// Falls back to plaintext deserialization when decryption fails, which
+    /// handles pre-encryption transactions written by earlier versions.
     fn deserialize_transaction(&self, data: &[u8]) -> Result<Transaction> {
-        // Try to decrypt if encryption is enabled
-        let json_data = if self.encryption_key.is_some() {
-            self.decrypt(data)?
+        if self.encryption_key.is_some() {
+            // Try decryption first, then fall back to plaintext for pre-encryption data
+            if let Ok(decrypted) = self.decrypt(data) {
+                if let Ok(tx) = serde_json::from_slice(&decrypted) {
+                    return Ok(tx);
+                }
+            }
+            // Fallback: try parsing as plaintext JSON (pre-encryption records)
+            if let Ok(tx) = serde_json::from_slice(data) {
+                return Ok(tx);
+            }
+            anyhow::bail!("Failed to deserialize transaction: neither decryption nor plaintext parsing succeeded");
         } else {
-            data.to_vec()
-        };
-
-        serde_json::from_slice(&json_data).context("Failed to deserialize transaction")
+            serde_json::from_slice(data).context("Failed to deserialize transaction")
+        }
     }
 
     /// Get transactions for a federation with hard limits to prevent memory exhaustion
@@ -551,14 +561,19 @@ impl Storage {
                     }
                 }
             }
-        } else if let Some(tree) = &self.transactions {
-            // Fallback to full scan if no index (memory mode)
-            for item in tree.iter() {
-                let (_, value) = item.context("Failed to read transaction item")?;
-                let transaction = self.deserialize_transaction(&value)?;
+            // If index returned nothing, fall through to full scan for
+            // pre-upgrade transactions not yet in the index.
+        }
+        if transactions.is_empty() {
+            if let Some(tree) = &self.transactions {
+                // Full scan fallback (index miss on upgrade, or no index)
+                for item in tree.iter() {
+                    let (_, value) = item.context("Failed to read transaction item")?;
+                    let transaction = self.deserialize_transaction(&value)?;
 
-                if &transaction.payment_hash == payment_hash {
-                    transactions.push(transaction);
+                    if &transaction.payment_hash == payment_hash {
+                        transactions.push(transaction);
+                    }
                 }
             }
         }
@@ -608,10 +623,10 @@ impl Storage {
                     return Ok(Some(transaction));
                 }
             }
-            return Ok(None);
+            // Index miss — fall through to full scan for pre-upgrade data
         }
 
-        // Fallback to full scan if no index (memory mode)
+        // Fallback to full scan (index miss on upgrade, or no index in memory mode)
         if let Some(tree) = &self.transactions {
             for item in tree.iter() {
                 let (_, value) = item.context("Failed to read transaction item")?;
@@ -780,10 +795,11 @@ impl Storage {
                     return Ok(Some(connection));
                 }
             }
-            return Ok(None);
+            // Index miss — fall through to full scan for pre-upgrade connections
+            // that were stored before the pubkey index was added.
         }
 
-        // Fallback to full scan if no index (memory mode)
+        // Fallback to full scan (index miss on upgrade, or no index in memory mode)
         if let Some(tree) = &self.connections {
             for item in tree.iter() {
                 let (_, value) = item.context("Failed to read connection item")?;

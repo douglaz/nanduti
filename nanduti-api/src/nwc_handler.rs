@@ -31,11 +31,14 @@ struct InFlightGuard {
 
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
-        // Use try_lock to avoid blocking in drop; if locked, the entry
-        // will be cleaned up by the next successful lock acquisition.
-        if let Ok(mut set) = self.in_flight.try_lock() {
-            set.remove(&self.payment_hash);
-        }
+        // Spawn a task to guarantee the in-flight marker is removed even if
+        // the mutex is currently held by another task. Using try_lock alone
+        // could silently fail, leaving the hash stuck until restart.
+        let payment_hash = self.payment_hash.clone();
+        let in_flight = Arc::clone(&self.in_flight);
+        tokio::spawn(async move {
+            in_flight.lock().await.remove(&payment_hash);
+        });
     }
 }
 
