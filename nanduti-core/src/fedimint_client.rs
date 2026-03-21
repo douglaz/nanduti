@@ -233,7 +233,15 @@ impl FedimintClientWrapper {
     }
 
     /// Pay a lightning invoice
-    pub async fn pay_invoice(&self, invoice: &Invoice) -> Result<PaymentResult> {
+    ///
+    /// When `amount_override` is `Some`, it is forwarded to Fedimint's
+    /// `pay_bolt11_invoice` so that amountless BOLT11 invoices are paid
+    /// with the caller-specified amount.
+    pub async fn pay_invoice(
+        &self,
+        invoice: &Invoice,
+        amount_override: Option<Amount>,
+    ) -> Result<PaymentResult> {
         // Convert to Bolt11Invoice
         let bolt11 = Bolt11Invoice::try_from(invoice).context("Failed to parse BOLT11 invoice")?;
 
@@ -248,9 +256,22 @@ impl FedimintClientWrapper {
             name = self.federation_name
         );
 
+        // Validate that the invoice has an amount or an override was provided.
+        // Fedimint 0.8.1 requires the invoice to contain an amount; amountless
+        // invoices are not yet supported by the underlying API.
+        if bolt11.amount_milli_satoshis().is_none() && amount_override.is_some() {
+            bail!(
+                "Amountless invoices are not yet supported by this Fedimint version. \
+                 The BOLT11 invoice must include an amount."
+            );
+        }
+
+        // Select a gateway for the payment
+        let gateway = self.select_gateway().await?;
+
         // Pay the invoice and get the operation
         let outgoing_payment = ln_module
-            .pay_bolt11_invoice(None, bolt11.clone(), ())
+            .pay_bolt11_invoice(gateway, bolt11.clone(), ())
             .await
             .context("Failed to pay invoice")?;
 

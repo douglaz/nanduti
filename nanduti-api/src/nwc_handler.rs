@@ -23,6 +23,22 @@ use uuid;
 use crate::nostr_client::NostrClient;
 use crate::router::FederationRouter;
 
+/// RAII guard that removes a payment hash from the in-flight set on drop.
+struct InFlightGuard {
+    payment_hash: String,
+    in_flight: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        // Use try_lock to avoid blocking in drop; if locked, the entry
+        // will be cleaned up by the next successful lock acquisition.
+        if let Ok(mut set) = self.in_flight.try_lock() {
+            set.remove(&self.payment_hash);
+        }
+    }
+}
+
 /// Handles NWC protocol requests
 pub struct NwcHandler {
     federation_manager: Arc<FederationManager>,
@@ -31,8 +47,12 @@ pub struct NwcHandler {
     nostr_client: Arc<NostrClient>,
     /// In-flight payment hashes to prevent concurrent duplicate payments.
     /// A payment hash is inserted before the payment call and removed after
-    /// settlement or failure.
-    in_flight_payments: tokio::sync::Mutex<std::collections::HashSet<String>>,
+    /// settlement or failure. Wrapped in Arc so it can be shared with InFlightGuard.
+    in_flight_payments: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Serializes the daily-limit check and pending-transaction write for all
+    /// payments, preventing two concurrent requests from both passing the quota
+    /// check before either's pending transaction is recorded.
+    payment_serializer: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl NwcHandler {
@@ -48,7 +68,8 @@ impl NwcHandler {
             router,
             storage,
             nostr_client,
-            in_flight_payments: tokio::sync::Mutex::new(std::collections::HashSet::new()),
+            in_flight_payments: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+            payment_serializer: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -204,6 +225,10 @@ impl NwcHandler {
             bail!("Invoice amount not specified and no amount override provided");
         };
 
+        // Serialize the quota-check → pending-write window so two concurrent
+        // payments for different invoices cannot both pass the daily limit.
+        let _payment_guard = self.payment_serializer.lock().await;
+
         // AUTHORIZATION CHECKS
         if let Some(storage) = &self.storage {
             // 1. Look up connection by sender pubkey
@@ -274,10 +299,11 @@ impl NwcHandler {
                     .get_daily_spent(&connection.id, day_start)
                     .context("Failed to get daily spending")?;
 
-                // Reserve a fee margin (1%) so routing fees don't push
-                // spending over the limit after the payment succeeds.
-                let amount_with_fee_margin =
-                    amount.as_msats().saturating_add(amount.as_msats() / 100);
+                // Reserve a fee margin so routing fees don't push spending
+                // over the limit after the payment succeeds.
+                // Use max(2%, 10000 msat) to account for both proportional and base fee components.
+                let fee_margin = std::cmp::max(amount.as_msats() / 50, 10_000);
+                let amount_with_fee_margin = amount.as_msats().saturating_add(fee_margin);
                 let total_after_payment = daily_spent.saturating_add(amount_with_fee_margin);
 
                 if total_after_payment > daily_limit {
@@ -350,6 +376,13 @@ impl NwcHandler {
             }
         }
 
+        // Create RAII guard so the in-flight marker is automatically removed on
+        // any exit path (success, failure, or early `?` error).
+        let _in_flight_guard = InFlightGuard {
+            payment_hash: invoice.payment_hash.to_string(),
+            in_flight: Arc::clone(&self.in_flight_payments),
+        };
+
         // Load connection once for federation filtering and metadata
         let connection = if let Some(storage) = &self.storage {
             storage
@@ -406,13 +439,18 @@ impl NwcHandler {
             storage.store_transaction(&transaction)?;
         }
 
+        // Release the serializer now that the pending transaction is written.
+        // Other payments can proceed with their quota checks while this one
+        // waits for the actual Lightning payment to complete.
+        drop(_payment_guard);
+
         // Execute payment
         let client = federation
             .client
             .as_ref()
             .ok_or_else(|| anyhow!("Federation client not initialized"))?;
 
-        let result = match client.pay_invoice(&invoice).await {
+        let result = match client.pay_invoice(&invoice, Some(amount)).await {
             Ok(payment_result) => payment_result,
             Err(error) => {
                 // Payment failed - update transaction state to Failed
@@ -437,11 +475,7 @@ impl NwcHandler {
                         .context("Failed to store failed transaction")?;
                 }
 
-                // Remove from in-flight set
-                self.in_flight_payments
-                    .lock()
-                    .await
-                    .remove(&invoice.payment_hash.to_string());
+                // In-flight marker is cleaned up by _in_flight_guard on return
 
                 // Return payment failed error
                 return Ok(NwcResponse::error(
@@ -481,11 +515,7 @@ impl NwcHandler {
             }
         }
 
-        // Remove from in-flight set after successful payment
-        self.in_flight_payments
-            .lock()
-            .await
-            .remove(&invoice.payment_hash.to_string());
+        // In-flight marker is cleaned up by _in_flight_guard when it drops
 
         Ok(NwcResponse::pay_invoice(result))
     }
@@ -810,6 +840,10 @@ impl NwcHandler {
 
         let amount = params.amount;
 
+        // Serialize the quota-check → pending-write window so two concurrent
+        // payments for different invoices cannot both pass the daily limit.
+        let _payment_guard = self.payment_serializer.lock().await;
+
         // AUTHORIZATION CHECKS
         if let Some(storage) = &self.storage {
             // 1. Look up connection by sender pubkey
@@ -880,10 +914,11 @@ impl NwcHandler {
                     .get_daily_spent(&connection.id, day_start)
                     .context("Failed to get daily spending")?;
 
-                // Reserve a fee margin (1%) so routing fees don't push
-                // spending over the limit after the payment succeeds.
-                let amount_with_fee_margin =
-                    amount.as_msats().saturating_add(amount.as_msats() / 100);
+                // Reserve a fee margin so routing fees don't push spending
+                // over the limit after the payment succeeds.
+                // Use max(2%, 10000 msat) to account for both proportional and base fee components.
+                let fee_margin = std::cmp::max(amount.as_msats() / 50, 10_000);
+                let amount_with_fee_margin = amount.as_msats().saturating_add(fee_margin);
                 let total_after_payment = daily_spent.saturating_add(amount_with_fee_margin);
 
                 if total_after_payment > daily_limit {
@@ -959,6 +994,11 @@ impl NwcHandler {
             };
             storage.store_transaction(&transaction)?;
         }
+
+        // Release the serializer now that the pending transaction is written.
+        // Other payments can proceed with their quota checks while this one
+        // waits for the actual Lightning payment to complete.
+        drop(_payment_guard);
 
         let client = federation
             .client

@@ -93,7 +93,7 @@ pub async fn pay_invoice(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Pay the invoice
-    let result = match client.pay_invoice(&invoice).await {
+    let result = match client.pay_invoice(&invoice, invoice.amount).await {
         Ok(result) => result,
         Err(e) => {
             // Mark transaction as Failed so it doesn't look in-flight forever
