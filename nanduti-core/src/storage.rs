@@ -801,20 +801,12 @@ impl Storage {
                 if let Some(metadata) = &transaction.metadata {
                     if let Some(conn_id) = metadata.get("connection_id") {
                         if conn_id.as_str() == Some(connection_id) {
-                            // For Pending payments, use created_at so they are
-                            // always counted in the current day's quota regardless
-                            // of when they eventually settle. For Settled payments,
-                            // use settled_at so completed payments are charged to
-                            // the day they actually settled.
-                            let tx_timestamp =
-                                if transaction.state == crate::models::TransactionState::Pending {
-                                    transaction.created_at.as_secs()
-                                } else {
-                                    transaction
-                                        .settled_at
-                                        .map(|t| t.as_secs())
-                                        .unwrap_or(transaction.created_at.as_secs())
-                                };
+                            // Always use created_at for day assignment so quota
+                            // reservations stay consistent across midnight. Using
+                            // settled_at would cause a payment created on day 1 to
+                            // stop counting against day 1 once it settles on day 2,
+                            // opening a window for a second payment to bypass the limit.
+                            let tx_timestamp = transaction.created_at.as_secs();
                             if tx_timestamp >= day_start && tx_timestamp < day_end {
                                 // Count both Settled and Pending outgoing payments so
                                 // concurrent in-flight payments are reserved against the

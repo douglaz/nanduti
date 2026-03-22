@@ -59,6 +59,12 @@ pub async fn create_nwc_connection(
     // send requests to relays the wallet is subscribed to. Caller-provided
     // relays are ignored because the server wouldn't read from them.
     let server_relays = state.relays.clone();
+    if server_relays.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Server has no configured relays — cannot create NWC connection URI".to_string(),
+        ));
+    }
 
     // Generate a client secret for this connection. The client will use this
     // secret to sign NWC requests, and we store the derived pubkey for auth lookups.

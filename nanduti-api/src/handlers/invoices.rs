@@ -85,7 +85,12 @@ pub async fn create_invoice(
         payment_hash: invoice.payment_hash.clone(),
         preimage: None,
         fees_paid: None,
-        metadata: None,
+        // Persist operation_id so startup recovery can re-subscribe the
+        // settlement watcher if the process restarts before settlement.
+        metadata: invoice
+            .operation_id
+            .as_ref()
+            .map(|op_id| serde_json::json!({ "operation_id": op_id })),
         created_at: Timestamp::now(),
         settled_at: None,
     };
@@ -99,7 +104,9 @@ pub async fn create_invoice(
         let op_id = op_id.clone();
         let client_ref = client_ref.clone();
         let payment_hash = invoice.payment_hash.clone();
+        let fed_id = federation.id.clone();
         let storage = state.storage.clone();
+        let fm = state.federation_manager.clone();
         tokio::spawn(async move {
             match client_ref.await_invoice_settlement(&op_id).await {
                 Ok(true) => {
@@ -109,6 +116,8 @@ pub async fn create_invoice(
                         tx.settled_at = Some(Timestamp::now());
                         let _ = storage.store_transaction(&tx);
                     }
+                    // Refresh cached balance to reflect received funds
+                    let _ = fm.update_balance(&fed_id).await;
                 }
                 Ok(false) => {
                     // Invoice cancelled/expired — mark as Failed
