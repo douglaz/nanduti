@@ -180,12 +180,12 @@ jobs:
             
             #### Using Nix
             ```bash
-            nix run github:${{ github.repository }}#${{ github.ref_name }}
+            nix run "github:${{ github.repository }}/${{ github.ref_name }}"
             ```
-            
+
             #### Using Docker
             ```bash
-            docker pull ghcr.io/${{ github.repository_owner }}/nanduti:${{ github.ref_name }}
+            docker pull ghcr.io/${{ github.repository_owner }}/nanduti:latest
             ```
             
             #### Binary Download

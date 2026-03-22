@@ -199,7 +199,7 @@ struct HealthResponse {
 /// Create HTTP router with all REST API endpoints
 fn create_http_router(app_state: Arc<AppState>) -> axum::Router {
     use axum::{
-        routing::{delete, get, post},
+        routing::{get, post},
         Json,
     };
 
@@ -217,11 +217,8 @@ fn create_http_router(app_state: Arc<AppState>) -> axum::Router {
         )
         .route(
             "/api/v1/federations/{id}",
-            get(handlers::federations::get_federation),
-        )
-        .route(
-            "/api/v1/federations/{id}",
-            delete(handlers::federations::remove_federation),
+            get(handlers::federations::get_federation)
+                .delete(handlers::federations::remove_federation),
         )
         .route(
             "/api/v1/federations/{id}/balance",

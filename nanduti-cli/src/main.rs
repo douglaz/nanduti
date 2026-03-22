@@ -484,9 +484,10 @@ async fn show_balance(args: BalanceArgs, api_url: &str) -> Result<()> {
                 println!("Federation Balance:");
                 println!("{:-<40}", "");
                 println!("Federation ID: {federation_id}");
-                if let Some(balance_value) = balance.as_object().and_then(|o| o.get("balance_sats"))
+                if let Some(balance_value) =
+                    balance.as_object().and_then(|o| o.get("balance_msats"))
                 {
-                    println!("Balance: {balance_value} sats");
+                    println!("Balance: {balance_value} msats");
                 } else {
                     println!("Balance: {balance}");
                 }
