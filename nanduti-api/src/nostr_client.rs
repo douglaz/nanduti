@@ -264,30 +264,35 @@ impl NostrClient {
                 Ok(events) => {
                     consecutive_errors = 0; // Reset error counter on success
 
+                    let mut batch_had_failure = false;
+                    let mut max_success_ts = latest_seen;
+
                     for event in events {
-                        // Skip if we've already processed this event
                         if processed_events.contains(&event.id) {
                             continue;
                         }
 
-                        // Handle the event BEFORE marking it as processed so that
-                        // transient failures (bad params, Fedimint errors, relay send
-                        // failures) get retried on the next poll instead of being
-                        // silently dropped.
                         let event_id = event.id;
                         let event_ts = event.created_at;
                         if let Err(e) = self.handle_single_event(event, handler.clone()).await {
                             tracing::error!("Error handling event {event_id}: {e}");
-                            // Don't mark as processed — will be retried next poll
+                            batch_had_failure = true;
+                            // Don't mark as processed — will be retried
                             continue;
                         }
 
-                        // Only advance the since window and mark as processed after
-                        // successful handling.
-                        if event_ts > latest_seen {
-                            latest_seen = event_ts;
-                        }
                         processed_events.put(event_id, ());
+                        if event_ts > max_success_ts {
+                            max_success_ts = event_ts;
+                        }
+                    }
+
+                    // Only advance latest_seen if no events failed in this batch.
+                    // If any failed, hold the window so the `since` filter doesn't
+                    // exclude them from the next poll. The processed_events LRU
+                    // ensures already-handled events are skipped efficiently.
+                    if !batch_had_failure {
+                        latest_seen = max_success_ts;
                     }
                 }
                 Err(e) => {

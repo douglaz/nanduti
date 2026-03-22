@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "nanduti": {
-      "command": "nanduti",
-      "args": ["mcp-server"],
+      "command": "cargo",
+      "args": ["run", "--features", "mcp", "--", "mcp-server"],
       "env": {
         "RUST_LOG": "info",
         "API_HOST": "localhost",

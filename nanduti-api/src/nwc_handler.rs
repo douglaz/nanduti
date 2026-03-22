@@ -586,14 +586,20 @@ impl NwcHandler {
             .make_invoice(amount, description, params.expiry.map(|e| e.as_secs()))
             .await?;
 
-        // Create transaction record with connection metadata so the invoice
-        // appears in this connection's list_transactions response
-        let metadata = connection.as_ref().map(|conn| {
-            serde_json::json!({
-                "connection_id": conn.id,
-                "sender_pubkey": sender_pubkey.as_str()
-            })
-        });
+        // Create transaction record with connection metadata and operation_id
+        // so the invoice appears in this connection's list_transactions response
+        // and the operation_id survives process restarts for re-subscription.
+        let metadata = {
+            let mut meta = serde_json::json!({});
+            if let Some(conn) = connection.as_ref() {
+                meta["connection_id"] = serde_json::json!(conn.id);
+                meta["sender_pubkey"] = serde_json::json!(sender_pubkey.as_str());
+            }
+            if let Some(op_id) = &invoice.operation_id {
+                meta["operation_id"] = serde_json::json!(op_id);
+            }
+            Some(meta)
+        };
 
         let transaction = Transaction {
             id: {

@@ -39,6 +39,15 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
         .await?,
     );
 
+    // Expire stale pending outgoing transactions from before this startup.
+    // Transactions pending for more than 1 hour are assumed to be from a
+    // previous crashed session and are marked Failed so they don't block retries.
+    match app_state.storage.expire_stale_pending(3600) {
+        Ok(0) => {}
+        Ok(n) => info!("Expired {n} stale pending outgoing transactions"),
+        Err(e) => tracing::warn!("Failed to expire stale pending transactions: {e}"),
+    }
+
     // Seed federations from CLI/env invite codes
     for invite_str in &config.federations {
         match std::str::FromStr::from_str(invite_str) {

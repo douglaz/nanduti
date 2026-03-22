@@ -547,24 +547,20 @@ impl Storage {
     /// This ensures transactions from removed federations remain visible
     /// in history listings.
     pub fn get_all_transactions(&self) -> Result<Vec<Transaction>> {
-        const MAX_SCAN: usize = 10_000;
         let mut transactions = Vec::new();
-        let mut scanned = 0;
 
         if let Some(tree) = &self.transactions {
+            // Scan all transactions — sled iterates by key order (UUID-based,
+            // not chronological), so we must collect everything before sorting.
             for item in tree.iter() {
-                scanned += 1;
-                if scanned > MAX_SCAN {
-                    warn!("Transaction scan exceeded {MAX_SCAN} items, aborting");
-                    break;
-                }
-
                 let (_, value) = item.context("Failed to read transaction item")?;
                 let transaction = self.deserialize_transaction(&value)?;
                 transactions.push(transaction);
             }
         }
 
+        // Sort chronologically after collecting all records so recent
+        // transactions are always included regardless of key order.
         transactions.sort_by_key(|tx| std::cmp::Reverse(tx.created_at));
         Ok(transactions)
     }
@@ -905,6 +901,43 @@ impl Storage {
     }
 
     /// Flush all pending writes to disk
+    /// Expire stale Pending outgoing transactions older than `max_age_secs`.
+    ///
+    /// This should be called on startup to reconcile transactions that were left
+    /// in Pending state due to a crash between the initial write and the payment
+    /// result. Without this, duplicate detection returns PAYMENT_IN_PROGRESS
+    /// forever for those invoices.
+    pub fn expire_stale_pending(&self, max_age_secs: u64) -> Result<usize> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let cutoff = now.saturating_sub(max_age_secs);
+        let mut expired = 0;
+
+        if let Some(tree) = &self.transactions {
+            for item in tree.iter() {
+                let (_, value) = item.context("Failed to read transaction item")?;
+                let mut transaction = self.deserialize_transaction(&value)?;
+
+                if transaction.state == crate::models::TransactionState::Pending
+                    && transaction.transaction_type == crate::models::TransactionType::Outgoing
+                    && transaction.created_at.as_secs() < cutoff
+                {
+                    transaction.state = crate::models::TransactionState::Failed;
+                    self.store_transaction(&transaction)?;
+                    expired += 1;
+                    info!(
+                        "Expired stale pending outgoing transaction: {}",
+                        transaction.id
+                    );
+                }
+            }
+        }
+
+        Ok(expired)
+    }
+
     pub fn flush(&self) -> Result<()> {
         if let Some(db) = &self.db {
             db.flush().context("Failed to flush database")?;
