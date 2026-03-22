@@ -1,6 +1,6 @@
 //! NIP-47 protocol request handler
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use nanduti_core::{
     constants::SECONDS_PER_DAY,
     federation::{FederationManager, FederationStatus},
@@ -222,10 +222,15 @@ impl NwcHandler {
                 }
             }
             invoice_amount
-        } else if let Some(override_amount) = params.amount {
-            override_amount
         } else {
-            bail!("Invoice amount not specified and no amount override provided");
+            // Amountless invoices are not supported by the current Fedimint version.
+            // Reject early with a clear error instead of accepting and failing later.
+            return Ok(NwcResponse::error(
+                "pay_invoice".to_string(),
+                NwcErrorCode::NotImplemented,
+                "Amountless invoices are not supported. The BOLT11 must include an amount."
+                    .to_string(),
+            ));
         };
 
         // Serialize the quota-check → pending-write window so two concurrent

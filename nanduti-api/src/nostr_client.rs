@@ -248,7 +248,7 @@ impl NostrClient {
 
         // Track the latest event timestamp we've seen so we can advance the
         // `since` window and avoid re-scanning already-processed events.
-        let mut latest_seen = now;
+        let latest_seen = now;
 
         // Circuit breaker for error handling
         let mut consecutive_errors = 0;
@@ -264,36 +264,28 @@ impl NostrClient {
                 Ok(events) => {
                     consecutive_errors = 0; // Reset error counter on success
 
-                    let mut batch_had_failure = false;
-                    let mut max_success_ts = latest_seen;
-
                     for event in events {
                         if processed_events.contains(&event.id) {
                             continue;
                         }
 
                         let event_id = event.id;
-                        let event_ts = event.created_at;
                         if let Err(e) = self.handle_single_event(event, handler.clone()).await {
                             tracing::error!("Error handling event {event_id}: {e}");
-                            batch_had_failure = true;
                             // Don't mark as processed — will be retried
                             continue;
                         }
 
                         processed_events.put(event_id, ());
-                        if event_ts > max_success_ts {
-                            max_success_ts = event_ts;
-                        }
                     }
 
-                    // Only advance latest_seen if no events failed in this batch.
-                    // If any failed, hold the window so the `since` filter doesn't
-                    // exclude them from the next poll. The processed_events LRU
-                    // ensures already-handled events are skipped efficiently.
-                    if !batch_had_failure {
-                        latest_seen = max_success_ts;
-                    }
+                    // Note: we intentionally do NOT advance latest_seen based on
+                    // event.created_at because that timestamp is sender-supplied and
+                    // can be skewed. A client with a clock ahead of real time would
+                    // push latest_seen forward, causing events from normally-clocked
+                    // clients to be permanently excluded by the `since` filter.
+                    // The processed_events LRU is the authoritative dedup mechanism;
+                    // the `since` filter just limits the query window.
                 }
                 Err(e) => {
                     consecutive_errors += 1;

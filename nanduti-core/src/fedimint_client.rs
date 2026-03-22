@@ -244,7 +244,7 @@ impl FedimintClientWrapper {
     pub async fn pay_invoice(
         &self,
         invoice: &Invoice,
-        amount_override: Option<Amount>,
+        _amount_override: Option<Amount>,
     ) -> Result<PaymentResult> {
         // Convert to Bolt11Invoice
         let bolt11 = Bolt11Invoice::try_from(invoice).context("Failed to parse BOLT11 invoice")?;
@@ -260,12 +260,11 @@ impl FedimintClientWrapper {
             name = self.federation_name
         );
 
-        // Validate that the invoice has an amount or an override was provided.
-        // Fedimint 0.8.1 requires the invoice to contain an amount; amountless
-        // invoices are not yet supported by the underlying API.
-        if bolt11.amount_milli_satoshis().is_none() && amount_override.is_some() {
+        // Fedimint 0.8.1's pay_bolt11_invoice does not support amount overrides
+        // for amountless invoices — the BOLT11 must include an amount.
+        if bolt11.amount_milli_satoshis().is_none() {
             bail!(
-                "Amountless invoices are not yet supported by this Fedimint version. \
+                "Amountless invoices are not supported by this Fedimint version. \
                  The BOLT11 invoice must include an amount."
             );
         }

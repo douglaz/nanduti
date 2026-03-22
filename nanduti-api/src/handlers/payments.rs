@@ -64,8 +64,32 @@ pub async fn pay_invoice(
         )
     })?;
 
-    // Store initial transaction record before payment
     use nanduti_core::models::{Transaction, TransactionState, TransactionType};
+
+    // Check for duplicate payment (same payment hash already settled or pending)
+    let existing_txs = state
+        .storage
+        .get_transactions_by_payment_hash(&invoice.payment_hash)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    for tx in existing_txs {
+        if tx.state == TransactionState::Settled {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Invoice already paid (transaction {})", tx.id.as_str()),
+            ));
+        } else if tx.state == TransactionState::Pending {
+            return Err((
+                StatusCode::CONFLICT,
+                format!(
+                    "Payment already in progress (transaction {})",
+                    tx.id.as_str()
+                ),
+            ));
+        }
+    }
+
+    // Store initial transaction record before payment
     let uuid = uuid::Uuid::new_v4();
     let transaction_id = TransactionId::new(format!("tx_{uuid}"));
     let created_at = Timestamp::now();
