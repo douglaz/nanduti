@@ -48,6 +48,77 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
         Err(e) => tracing::warn!("Failed to expire stale pending transactions: {e}"),
     }
 
+    // Re-subscribe pending incoming invoices that have operation_ids in metadata.
+    // These settlement watchers were lost when the previous process exited.
+    {
+        use nanduti_core::models::{TransactionState, TransactionType};
+        if let Ok(all_txs) = app_state.storage.get_all_transactions() {
+            let pending_incoming: Vec<_> = all_txs
+                .into_iter()
+                .filter(|tx| {
+                    tx.state == TransactionState::Pending
+                        && tx.transaction_type == TransactionType::Incoming
+                })
+                .collect();
+
+            for tx in pending_incoming {
+                let op_id = tx
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("operation_id"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                if let Some(op_id) = op_id {
+                    // Find the federation's client to re-subscribe
+                    if let Ok(federation) = app_state
+                        .federation_manager
+                        .get_federation(&tx.federation_id)
+                        .await
+                    {
+                        if let Some(client) = &federation.client {
+                            let client = client.clone();
+                            let payment_hash = tx.payment_hash.clone();
+                            let tx_id = tx.id.clone();
+                            let fed_id = tx.federation_id.clone();
+                            let storage = app_state.storage.clone();
+                            let fm = app_state.federation_manager.clone();
+                            info!("Re-subscribing settlement watcher for invoice {tx_id}");
+                            tokio::spawn(async move {
+                                match client.await_invoice_settlement(&op_id).await {
+                                    Ok(true) => {
+                                        info!("Invoice {tx_id} settled on federation {fed_id}");
+                                        if let Ok(Some(mut tx_update)) =
+                                            storage.get_transaction_by_payment_hash(&payment_hash)
+                                        {
+                                            tx_update.state = TransactionState::Settled;
+                                            tx_update.settled_at =
+                                                Some(nanduti_core::models::Timestamp::now());
+                                            let _ = storage.store_transaction(&tx_update);
+                                        }
+                                        let _ = fm.update_balance(&fed_id).await;
+                                    }
+                                    Ok(false) => {
+                                        if let Ok(Some(mut tx_update)) =
+                                            storage.get_transaction_by_payment_hash(&payment_hash)
+                                        {
+                                            tx_update.state = TransactionState::Failed;
+                                            let _ = storage.store_transaction(&tx_update);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Failed to re-subscribe invoice {tx_id}: {e}"
+                                        );
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Seed federations from CLI/env invite codes
     for invite_str in &config.federations {
         match std::str::FromStr::from_str(invite_str) {

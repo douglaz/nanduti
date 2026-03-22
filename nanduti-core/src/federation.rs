@@ -173,16 +173,17 @@ impl FederationManager {
         federation.status = FederationStatus::Online;
         federation.client = Some(Arc::new(client));
 
-        // Store federation
+        // Persist BEFORE updating the in-memory cache so a storage failure
+        // doesn't leave the live state diverged from what will be reloaded.
         let federation_arc = Arc::new(federation);
+        if let Some(storage) = &self.storage {
+            storage.store_federation(&federation_arc)?;
+        }
+
+        // Update in-memory cache only after persistence succeeds
         {
             let mut federations = self.federations.write().await;
             federations.insert(federation_id.clone(), federation_arc.clone());
-        }
-
-        // Persist if storage is available
-        if let Some(storage) = &self.storage {
-            storage.store_federation(&federation_arc)?;
         }
 
         info!(
@@ -194,21 +195,27 @@ impl FederationManager {
 
     /// Remove a federation
     pub async fn remove_federation(&self, federation_id: &FederationId) -> Result<()> {
-        let mut federations = self.federations.write().await;
-
-        let federation = federations
-            .remove(federation_id)
-            .ok_or_else(|| anyhow!("Federation {federation_id} not found"))?;
-
-        // Cleanup client if needed
-        if let Some(_client) = &federation.client {
-            // Perform any cleanup operations
-            debug!("Cleaning up federation client for {federation_id}");
+        // Verify the federation exists before attempting removal
+        {
+            let federations = self.federations.read().await;
+            if !federations.contains_key(federation_id) {
+                bail!("Federation {federation_id} not found");
+            }
         }
 
-        // Remove from storage
+        // Persist removal BEFORE updating the in-memory cache
         if let Some(storage) = &self.storage {
             storage.remove_federation(federation_id)?;
+        }
+
+        // Remove from in-memory cache only after persistence succeeds
+        {
+            let mut federations = self.federations.write().await;
+            if let Some(federation) = federations.remove(federation_id) {
+                if let Some(_client) = &federation.client {
+                    debug!("Cleaning up federation client for {federation_id}");
+                }
+            }
         }
 
         info!("Removed federation: {federation_id}");

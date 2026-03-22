@@ -348,7 +348,7 @@ impl NostrClient {
         let request: NwcRequest =
             serde_json::from_str(&decrypted_content).context("Failed to parse NWC request")?;
 
-        let method = &request.method;
+        let method = request.method.as_str().to_string();
         info!("Received NWC request: {method}");
 
         // Create request context with sender pubkey for authorization
@@ -358,8 +358,19 @@ impl NostrClient {
             event_id: event.id.to_hex(),
         };
 
-        // Handle the request
-        let response = handler.handle_request(context).await?;
+        // Handle the request — convert errors into NWC error responses so the
+        // client gets a proper reply instead of a silent timeout.
+        let response = match handler.handle_request(context).await {
+            Ok(response) => response,
+            Err(e) => {
+                tracing::warn!("NWC request handler error for {method}: {e}");
+                nanduti_core::nwc_protocol::NwcResponse::error(
+                    method.clone(),
+                    nanduti_core::nwc_protocol::NwcErrorCode::Internal,
+                    format!("Internal error: {e}"),
+                )
+            }
+        };
 
         // Serialize response
         let response_content = serde_json::to_string(&response)?;

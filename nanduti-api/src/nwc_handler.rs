@@ -634,6 +634,7 @@ impl NwcHandler {
             let fed_id = federation.id.clone();
             let payment_hash = transaction.payment_hash.clone();
             let storage = self.storage.clone();
+            let fm = self.federation_manager.clone();
             tokio::spawn(async move {
                 match client.await_invoice_settlement(&op_id).await {
                     Ok(true) => {
@@ -647,6 +648,8 @@ impl NwcHandler {
                                 let _ = storage.store_transaction(&tx);
                             }
                         }
+                        // Refresh cached balance to reflect the received funds
+                        let _ = fm.update_balance(&fed_id).await;
                     }
                     Ok(false) => {
                         warn!("Invoice {tx_id} cancelled on federation {fed_id}");
@@ -685,9 +688,13 @@ impl NwcHandler {
             None
         };
 
-        // Sum balance only from federations this connection is allowed to use
+        // Sum balance only from online federations this connection is allowed to use.
+        // Offline federations may have stale cached balances that overstate funds.
         let mut total_msats = 0u64;
         for federation in self.federation_manager.list_federations().await {
+            if federation.status != FederationStatus::Online {
+                continue;
+            }
             let allowed = allowed_filter
                 .as_ref()
                 .map(|f| f.allows(&federation.id))
