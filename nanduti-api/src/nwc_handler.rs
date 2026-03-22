@@ -644,6 +644,15 @@ impl NwcHandler {
                     }
                     Ok(false) => {
                         warn!("Invoice {tx_id} cancelled on federation {fed_id}");
+                        // Mark as Failed so it doesn't stay Pending forever
+                        if let Some(storage) = &storage {
+                            if let Ok(Some(mut tx)) =
+                                storage.get_transaction_by_payment_hash(&payment_hash)
+                            {
+                                tx.state = TransactionState::Failed;
+                                let _ = storage.store_transaction(&tx);
+                            }
+                        }
                     }
                     Err(e) => {
                         warn!("Failed to watch invoice {tx_id} settlement: {e}");
@@ -1136,10 +1145,8 @@ impl NwcHandler {
         } else if let Some(inv) = invoice {
             if let Some(storage) = &self.storage {
                 storage
-                    .get_transaction_by_invoice(&Bolt11String::new(inv))
+                    .get_transactions_by_invoice(&Bolt11String::new(inv))
                     .map_err(|error| anyhow::anyhow!("Failed to lookup transaction: {error}"))?
-                    .into_iter()
-                    .collect()
             } else {
                 vec![]
             }

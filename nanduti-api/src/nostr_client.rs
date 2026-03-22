@@ -270,18 +270,24 @@ impl NostrClient {
                             continue;
                         }
 
-                        // Advance the since window so future queries skip older events
-                        if event.created_at > latest_seen {
-                            latest_seen = event.created_at;
-                        }
-
-                        // Mark as processed (LRU cache automatically evicts oldest when full)
-                        processed_events.put(event.id, ());
-
-                        // Handle the event
+                        // Handle the event BEFORE marking it as processed so that
+                        // transient failures (bad params, Fedimint errors, relay send
+                        // failures) get retried on the next poll instead of being
+                        // silently dropped.
+                        let event_id = event.id;
+                        let event_ts = event.created_at;
                         if let Err(e) = self.handle_single_event(event, handler.clone()).await {
-                            tracing::error!("Error handling event: {e}");
+                            tracing::error!("Error handling event {event_id}: {e}");
+                            // Don't mark as processed — will be retried next poll
+                            continue;
                         }
+
+                        // Only advance the since window and mark as processed after
+                        // successful handling.
+                        if event_ts > latest_seen {
+                            latest_seen = event_ts;
+                        }
+                        processed_events.put(event_id, ());
                     }
                 }
                 Err(e) => {

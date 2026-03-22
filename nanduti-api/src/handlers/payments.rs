@@ -116,6 +116,13 @@ pub async fn pay_invoice(
         .store_transaction(&transaction)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Refresh the federation's cached balance so subsequent routing and
+    // balance queries reflect the spend immediately.
+    let _ = state
+        .federation_manager
+        .update_balance(&federation.id)
+        .await;
+
     Ok(Json(PayInvoiceResponse {
         payment_hash: result.payment_hash,
         preimage: result.preimage,

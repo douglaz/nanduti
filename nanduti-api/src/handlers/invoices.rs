@@ -101,12 +101,24 @@ pub async fn create_invoice(
         let payment_hash = invoice.payment_hash.clone();
         let storage = state.storage.clone();
         tokio::spawn(async move {
-            if let Ok(true) = client_ref.await_invoice_settlement(&op_id).await {
-                if let Ok(Some(mut tx)) = storage.get_transaction_by_payment_hash(&payment_hash) {
-                    tx.state = TransactionState::Settled;
-                    tx.settled_at = Some(Timestamp::now());
-                    let _ = storage.store_transaction(&tx);
+            match client_ref.await_invoice_settlement(&op_id).await {
+                Ok(true) => {
+                    if let Ok(Some(mut tx)) = storage.get_transaction_by_payment_hash(&payment_hash)
+                    {
+                        tx.state = TransactionState::Settled;
+                        tx.settled_at = Some(Timestamp::now());
+                        let _ = storage.store_transaction(&tx);
+                    }
                 }
+                Ok(false) => {
+                    // Invoice cancelled/expired — mark as Failed
+                    if let Ok(Some(mut tx)) = storage.get_transaction_by_payment_hash(&payment_hash)
+                    {
+                        tx.state = TransactionState::Failed;
+                        let _ = storage.store_transaction(&tx);
+                    }
+                }
+                Err(_) => {}
             }
         });
     }

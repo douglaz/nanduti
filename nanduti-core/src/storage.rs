@@ -432,10 +432,28 @@ impl Storage {
                     .context("Failed to update payment_hash index")?;
             }
 
-            // Update invoice index (if present)
+            // Update invoice index (stores a JSON array of tx IDs, like the
+            // payment_hash index, to support retries and multi-connection cases)
             if let (Some(idx), Some(inv)) = (&self.tx_by_invoice, &invoice) {
                 let key = self.hash_index_key(inv.as_str().as_bytes());
-                let value = self.encrypt_index_value(transaction_id.as_bytes())?;
+                let mut tx_ids: Vec<String> = if let Some(existing) =
+                    idx.get(&key).context("Failed to read invoice index")?
+                {
+                    let raw = self.decrypt_index_value(&existing)?;
+                    serde_json::from_slice(&raw).unwrap_or_else(|_| {
+                        let legacy_id = String::from_utf8_lossy(&raw).to_string();
+                        vec![legacy_id]
+                    })
+                } else {
+                    Vec::new()
+                };
+                let tx_id_str = String::from_utf8_lossy(transaction_id.as_bytes()).to_string();
+                if !tx_ids.contains(&tx_id_str) {
+                    tx_ids.push(tx_id_str);
+                }
+                let encoded =
+                    serde_json::to_vec(&tx_ids).context("Failed to serialize invoice index")?;
+                let value = self.encrypt_index_value(&encoded)?;
                 idx.insert(key.as_slice(), value.as_slice())
                     .context("Failed to update invoice index")?;
             }
@@ -626,47 +644,69 @@ impl Storage {
         Ok(transactions.into_iter().next())
     }
 
-    /// Get a transaction by invoice
+    /// Get all transactions matching an invoice string
+    ///
+    /// # Returns
+    /// Returns all matching transactions sorted by creation time (most recent first).
     ///
     /// # Performance
-    /// Uses secondary index for O(1) lookup by invoice string.
-    pub fn get_transaction_by_invoice(
-        &self,
-        invoice: &Bolt11String,
-    ) -> Result<Option<Transaction>> {
+    /// Uses secondary index for efficient lookup by invoice string.
+    pub fn get_transactions_by_invoice(&self, invoice: &Bolt11String) -> Result<Vec<Transaction>> {
+        let mut transactions = Vec::new();
+
         // Try to use index first (key is hashed when encryption is enabled)
         if let (Some(idx), Some(tree)) = (&self.tx_by_invoice, &self.transactions) {
             let hashed_key = self.hash_index_key(invoice.as_str().as_bytes());
-            if let Some(encrypted_tx_id) = idx
+            if let Some(raw) = idx
                 .get(&hashed_key)
                 .context("Failed to read invoice index")?
             {
-                let tx_id_bytes = self.decrypt_index_value(&encrypted_tx_id)?;
-                if let Some(data) = tree
-                    .get(tx_id_bytes.as_slice())
-                    .context("Failed to read transaction from index lookup")?
-                {
-                    let transaction = self.deserialize_transaction(&data)?;
-                    return Ok(Some(transaction));
+                let decrypted = self.decrypt_index_value(&raw)?;
+                let tx_ids: Vec<String> = serde_json::from_slice(&decrypted).unwrap_or_else(|_| {
+                    let legacy_id = String::from_utf8_lossy(&decrypted).to_string();
+                    vec![legacy_id]
+                });
+
+                for tx_id in &tx_ids {
+                    if let Some(data) = tree
+                        .get(tx_id.as_bytes())
+                        .context("Failed to read transaction from index lookup")?
+                    {
+                        let transaction = self.deserialize_transaction(&data)?;
+                        transactions.push(transaction);
+                    }
                 }
             }
             // Index miss — fall through to full scan for pre-upgrade data
         }
 
-        // Fallback to full scan (index miss on upgrade, or no index in memory mode)
-        if let Some(tree) = &self.transactions {
-            for item in tree.iter() {
-                let (_, value) = item.context("Failed to read transaction item")?;
-                let transaction = self.deserialize_transaction(&value)?;
+        if transactions.is_empty() {
+            // Fallback to full scan (index miss on upgrade, or no index in memory mode)
+            if let Some(tree) = &self.transactions {
+                for item in tree.iter() {
+                    let (_, value) = item.context("Failed to read transaction item")?;
+                    let transaction = self.deserialize_transaction(&value)?;
 
-                if let Some(tx_invoice) = &transaction.invoice {
-                    if tx_invoice == invoice {
-                        return Ok(Some(transaction));
+                    if let Some(tx_invoice) = &transaction.invoice {
+                        if tx_invoice == invoice {
+                            transactions.push(transaction);
+                        }
                     }
                 }
             }
         }
-        Ok(None)
+
+        transactions.sort_by_key(|tx| std::cmp::Reverse(tx.created_at));
+        Ok(transactions)
+    }
+
+    /// Get the most recent transaction by invoice (convenience wrapper)
+    pub fn get_transaction_by_invoice(
+        &self,
+        invoice: &Bolt11String,
+    ) -> Result<Option<Transaction>> {
+        let transactions = self.get_transactions_by_invoice(invoice)?;
+        Ok(transactions.into_iter().next())
     }
 
     /// Store a NWC connection with ACID guarantees
