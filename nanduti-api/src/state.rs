@@ -35,6 +35,10 @@ pub struct AppState {
 
     /// Relay URLs the server is actually subscribed to
     pub relays: Vec<String>,
+
+    /// Shared in-flight payment hashes for duplicate prevention across
+    /// both NWC and REST handlers
+    pub in_flight_payments: std::sync::Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 impl AppState {
@@ -111,12 +115,17 @@ impl AppState {
         };
         let nostr_client = Arc::new(NostrClient::new(relays.clone(), wallet_secret).await?);
 
+        // Shared in-flight payment set for both NWC and REST handlers
+        let in_flight_payments =
+            std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+
         // Create NWC handler
         let nwc_handler = Arc::new(NwcHandler::new(
             federation_manager.clone(),
             router.clone(),
             Some(storage.clone()),
             nostr_client.clone(),
+            in_flight_payments.clone(),
         ));
 
         Ok(Self {
@@ -128,6 +137,9 @@ impl AppState {
             max_payment_amount,
             daily_limit_amount,
             relays,
+            in_flight_payments: std::sync::Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
         })
     }
 }

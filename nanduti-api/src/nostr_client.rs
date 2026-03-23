@@ -246,9 +246,10 @@ impl NostrClient {
         // Use proper event streaming (subscribe and poll)
         self.client.subscribe(filter.clone(), None).await?;
 
-        // Track the latest event timestamp we've seen so we can advance the
-        // `since` window and avoid re-scanning already-processed events.
-        let latest_seen = now;
+        // Track server wall-clock time to advance the `since` window.
+        // We use server time (not sender-supplied event.created_at) to avoid
+        // clock-skew issues, and only advance after a clean poll cycle.
+        let mut latest_seen = now;
 
         // Circuit breaker for error handling
         let mut consecutive_errors = 0;
@@ -271,21 +272,21 @@ impl NostrClient {
 
                         let event_id = event.id;
                         if let Err(e) = self.handle_single_event(event, handler.clone()).await {
-                            tracing::error!("Error handling event {event_id}: {e}");
-                            // Don't mark as processed — will be retried
+                            // Errors from handle_single_event are permanent failures
+                            // (decrypt/parse errors) since handler-level errors are
+                            // converted to NWC error responses. Mark as processed to
+                            // prevent infinite retry of malformed events.
+                            tracing::warn!("Permanently failed event {event_id}: {e}");
+                            processed_events.put(event_id, ());
                             continue;
                         }
 
                         processed_events.put(event_id, ());
                     }
 
-                    // Note: we intentionally do NOT advance latest_seen based on
-                    // event.created_at because that timestamp is sender-supplied and
-                    // can be skewed. A client with a clock ahead of real time would
-                    // push latest_seen forward, causing events from normally-clocked
-                    // clients to be permanently excluded by the `since` filter.
-                    // The processed_events LRU is the authoritative dedup mechanism;
-                    // the `since` filter just limits the query window.
+                    // Advance latest_seen using server wall-clock time to prevent
+                    // LRU eviction from replaying old events on long-lived servers.
+                    latest_seen = Timestamp::now();
                 }
                 Err(e) => {
                     consecutive_errors += 1;

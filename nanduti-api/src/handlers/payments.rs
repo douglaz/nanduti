@@ -66,27 +66,43 @@ pub async fn pay_invoice(
 
     use nanduti_core::models::{Transaction, TransactionState, TransactionType};
 
-    // Check for duplicate payment (same payment hash already settled or pending)
-    let existing_txs = state
-        .storage
-        .get_transactions_by_payment_hash(&invoice.payment_hash)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // Atomic duplicate-payment check: hold the shared in-flight lock across
+    // the storage check and pending tx write to prevent concurrent requests
+    // for the same invoice from both passing.
+    let ph = invoice.payment_hash.to_string();
+    {
+        let mut in_flight = state.in_flight_payments.lock().await;
 
-    for tx in existing_txs {
-        if tx.state == TransactionState::Settled {
+        if in_flight.contains(&ph) {
             return Err((
                 StatusCode::CONFLICT,
-                format!("Invoice already paid (transaction {})", tx.id.as_str()),
-            ));
-        } else if tx.state == TransactionState::Pending {
-            return Err((
-                StatusCode::CONFLICT,
-                format!(
-                    "Payment already in progress (transaction {})",
-                    tx.id.as_str()
-                ),
+                "Payment already in progress (concurrent request)".to_string(),
             ));
         }
+
+        let existing_txs = state
+            .storage
+            .get_transactions_by_payment_hash(&invoice.payment_hash)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        for tx in existing_txs {
+            if tx.state == TransactionState::Settled {
+                return Err((
+                    StatusCode::CONFLICT,
+                    format!("Invoice already paid (transaction {})", tx.id.as_str()),
+                ));
+            } else if tx.state == TransactionState::Pending {
+                return Err((
+                    StatusCode::CONFLICT,
+                    format!(
+                        "Payment already in progress (transaction {})",
+                        tx.id.as_str()
+                    ),
+                ));
+            }
+        }
+
+        in_flight.insert(ph.clone());
     }
 
     // Store initial transaction record before payment
@@ -123,6 +139,8 @@ pub async fn pay_invoice(
             // Mark transaction as Failed so it doesn't look in-flight forever
             transaction.state = TransactionState::Failed;
             let _ = state.storage.store_transaction(&transaction);
+            // Remove from in-flight set
+            state.in_flight_payments.lock().await.remove(&ph);
             return Err((StatusCode::PAYMENT_REQUIRED, e.to_string()));
         }
     };
@@ -146,6 +164,9 @@ pub async fn pay_invoice(
         .federation_manager
         .update_balance(&federation.id)
         .await;
+
+    // Remove from in-flight set
+    state.in_flight_payments.lock().await.remove(&ph);
 
     Ok(Json(PayInvoiceResponse {
         payment_hash: result.payment_hash,

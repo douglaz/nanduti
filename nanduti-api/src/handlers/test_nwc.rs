@@ -36,12 +36,16 @@ mod tests {
                 Arc::clone(&router),
                 None,
                 Arc::clone(&nostr_client),
+                std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
             )),
             nostr_client,
             router,
             max_payment_amount: None,
             daily_limit_amount: None,
             relays: vec![],
+            in_flight_payments: std::sync::Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
         })
     }
 

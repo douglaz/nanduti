@@ -65,13 +65,14 @@ impl NwcHandler {
         router: Arc<FederationRouter>,
         storage: Option<Arc<Storage>>,
         nostr_client: Arc<NostrClient>,
+        in_flight_payments: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
     ) -> Self {
         Self {
             federation_manager,
             router,
             storage,
             nostr_client,
-            in_flight_payments: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+            in_flight_payments,
             payment_serializer: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
