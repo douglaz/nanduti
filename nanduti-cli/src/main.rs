@@ -102,7 +102,8 @@ struct ServeArgs {
     #[arg(
         long = "federation",
         value_name = "INVITE_CODE",
-        env = "FEDIMINT_FEDERATIONS"
+        env = "FEDIMINT_FEDERATIONS",
+        value_delimiter = ','
     )]
     federations: Vec<String>,
 
@@ -112,7 +113,8 @@ struct ServeArgs {
         long = "relay",
         value_name = "URL",
         default_value = "wss://relay.damus.io",
-        env = "NOSTR_RELAYS"
+        env = "NOSTR_RELAYS",
+        value_delimiter = ','
     )]
     relays: Vec<String>,
 

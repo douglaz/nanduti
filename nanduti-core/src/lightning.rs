@@ -40,9 +40,7 @@ impl LightningOperation {
             lightning_invoice::Bolt11InvoiceDescriptionRef::Direct(desc) => {
                 Some(Description::new(desc.to_string()))
             }
-            lightning_invoice::Bolt11InvoiceDescriptionRef::Hash(_) => Some(Description::new(
-                "Payment with description hash".to_string(),
-            )),
+            lightning_invoice::Bolt11InvoiceDescriptionRef::Hash(_) => None,
         };
 
         // Extract expiry (default is 3600 seconds if not specified)

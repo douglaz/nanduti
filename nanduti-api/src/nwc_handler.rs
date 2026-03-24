@@ -161,7 +161,7 @@ impl NwcHandler {
                 self.handle_list_transactions(context.request.params, sender_pubkey)
                     .await
             }
-            ParsedMethod::Known(NwcMethod::GetInfo) => self.handle_get_info().await,
+            ParsedMethod::Known(NwcMethod::GetInfo) => self.handle_get_info(sender_pubkey).await,
             ParsedMethod::Known(NwcMethod::PayKeysend) => {
                 self.handle_pay_keysend(context.request.params, sender_pubkey)
                     .await
@@ -828,15 +828,31 @@ impl NwcHandler {
     }
 
     /// Handle get_info request
-    async fn handle_get_info(&self) -> Result<NwcResponse> {
+    async fn handle_get_info(
+        &self,
+        sender_pubkey: &nanduti_core::models::PublicKey,
+    ) -> Result<NwcResponse> {
         use nanduti_core::nwc_protocol::NwcNetwork;
 
-        // Use the already-cached network from the Federation struct instead
-        // of making an RPC call for every get_info request.
+        // Scope to the caller's allowed federations so the reported network
+        // matches what pay_invoice/make_invoice will actually route through.
+        let allowed_filter = if let Some(storage) = &self.storage {
+            storage
+                .get_connection(sender_pubkey)
+                .context("Failed to lookup connection")?
+                .map(|c| c.allowed_federations)
+        } else {
+            None
+        };
+
         let federations = self.federation_manager.list_federations().await;
-        let online_federation = federations
-            .iter()
-            .find(|f| f.status == FederationStatus::Online);
+        let online_federation = federations.iter().find(|f| {
+            f.status == FederationStatus::Online
+                && allowed_filter
+                    .as_ref()
+                    .map(|filter| filter.allows(&f.id))
+                    .unwrap_or(true)
+        });
 
         let (network, block_height) = if let Some(federation) = online_federation {
             let network = federation.network;
@@ -1222,7 +1238,7 @@ impl NwcHandler {
                 "settled_at": tx.settled_at.map(|t| t.as_secs()),
                 "created_at": tx.created_at.as_secs(),
                 "description": tx.description.as_ref().map(|d| d.to_string()),
-                "fees_paid": tx.fees_paid.map(|f| f.as_msats()),
+                "fees_paid": tx.fees_paid.map(|f| f.as_msats()).unwrap_or(0),
                 "settled": settled,
             });
 

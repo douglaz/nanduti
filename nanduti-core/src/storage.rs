@@ -886,6 +886,14 @@ impl Storage {
     /// Flush all pending writes to disk
     /// Expire stale Pending outgoing transactions older than `max_age_secs`.
     ///
+    /// # Limitation
+    /// Fedimint does not expose a recoverable operation ID for outgoing payments
+    /// (unlike incoming invoices), so we cannot re-subscribe to the underlying
+    /// operation on restart. The 24-hour default window and outgoing-only duplicate
+    /// detection mitigate the double-payment risk, but a payment that settles
+    /// externally after being expired here could theoretically be retried. This
+    /// is a known limitation until Fedimint adds outgoing operation recovery.
+    ///
     /// This should be called on startup to reconcile transactions that were left
     /// in Pending state due to a crash between the initial write and the payment
     /// result. Without this, duplicate detection returns PAYMENT_IN_PROGRESS
