@@ -103,6 +103,9 @@ pub struct Invoice {
     /// Only present for invoices created through Fedimint backends.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub operation_id: Option<String>,
+    /// Bitcoin network extracted from the BOLT11 invoice prefix
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub network: Option<crate::nwc_protocol::NwcNetwork>,
 }
 
 impl From<&lightning_invoice::Bolt11Invoice> for Invoice {
@@ -123,6 +126,7 @@ impl From<&lightning_invoice::Bolt11Invoice> for Invoice {
             payee_pubkey: bolt11.payee_pub_key().map(|k| PublicKey(k.to_string())),
             created_at: Some(bolt11.timestamp()),
             operation_id: None,
+            network: None,
         }
     }
 }

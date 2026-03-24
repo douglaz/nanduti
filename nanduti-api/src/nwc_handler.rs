@@ -411,11 +411,13 @@ impl NwcHandler {
 
         // Select federation, filtering to the connection's allowed set so that
         // restricted connections don't get spurious rejections when the router
-        // picks a cheaper but unauthorized federation.
+        // picks a cheaper but unauthorized federation. Also filter by the
+        // invoice's network to avoid paying a mainnet invoice through a testnet
+        // federation (or vice-versa).
         let allowed_filter = connection.as_ref().map(|c| &c.allowed_federations);
         let federation = self
             .router
-            .select_federation_filtered(amount, allowed_filter)
+            .select_federation_filtered(amount, allowed_filter, invoice.network)
             .await?;
 
         info!(
@@ -829,23 +831,24 @@ impl NwcHandler {
     async fn handle_get_info(&self) -> Result<NwcResponse> {
         use nanduti_core::nwc_protocol::NwcNetwork;
 
-        // Determine network from online federations. If multiple federations
-        // report different networks, log a warning — mixed-network deployments
-        // are not fully supported and can cause routing failures.
-        // TODO: Add network metadata to Federation and enforce single-network
-        // routing in select_federation_filtered.
+        // Use the already-cached network from the Federation struct instead
+        // of making an RPC call for every get_info request.
         let federations = self.federation_manager.list_federations().await;
         let online_federation = federations
             .iter()
             .find(|f| f.status == FederationStatus::Online);
 
         let (network, block_height) = if let Some(federation) = online_federation {
-            if let Some(client) = &federation.client {
-                let info = client.get_info().await?;
-                (NwcNetwork::from_str_loose(&info.network), info.block_height)
+            let network = federation.network;
+            let block_height = if let Some(client) = &federation.client {
+                match client.get_info().await {
+                    Ok(info) => info.block_height,
+                    Err(_) => 0,
+                }
             } else {
-                (NwcNetwork::Mainnet, 0)
-            }
+                0
+            };
+            (network, block_height)
         } else {
             (NwcNetwork::Mainnet, 0)
         };
@@ -996,11 +999,12 @@ impl NwcHandler {
             None
         };
 
-        // Select federation, filtering to the connection's allowed set
+        // Select federation, filtering to the connection's allowed set.
+        // Keysend has no BOLT11, so we cannot infer a network — pass None.
         let allowed_filter = connection.as_ref().map(|c| &c.allowed_federations);
         let federation = self
             .router
-            .select_federation_filtered(amount, allowed_filter)
+            .select_federation_filtered(amount, allowed_filter, None)
             .await?;
 
         let federation_id = &federation.id;

@@ -41,18 +41,24 @@ impl FederationRouter {
 
     /// Select a federation for payment
     pub async fn select_federation(&self, amount: Amount) -> Result<Federation> {
-        self.select_federation_filtered(amount, None).await
+        self.select_federation_filtered(amount, None, None).await
     }
 
-    /// Select a federation for payment, optionally restricted to allowed federations.
+    /// Select a federation for payment, optionally restricted to allowed federations
+    /// and/or a specific network.
     ///
     /// When `allowed` is `Some`, only federations whose ID passes the filter will be
     /// considered. This prevents the router from picking a federation that the
     /// connection is not authorized to use, which would cause a spurious rejection.
+    ///
+    /// When `network` is `Some`, only federations operating on the given Bitcoin
+    /// network will be considered. This prevents paying a mainnet invoice through a
+    /// testnet federation (or vice-versa).
     pub async fn select_federation_filtered(
         &self,
         amount: Amount,
         allowed: Option<&nanduti_core::models::FederationFilter>,
+        network: Option<nanduti_core::nwc_protocol::NwcNetwork>,
     ) -> Result<Federation> {
         let federations = self.federation_manager.list_federations().await;
 
@@ -68,6 +74,7 @@ impl FederationRouter {
             .filter(|f| f.status == FederationStatus::Online)
             .filter(|f| f.balance >= amount_with_margin)
             .filter(|f| allowed.map(|filter| filter.allows(&f.id)).unwrap_or(true))
+            .filter(|f| network.map(|n| f.network == n).unwrap_or(true))
             .collect();
 
         if available.is_empty() {

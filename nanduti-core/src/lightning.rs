@@ -56,6 +56,15 @@ impl LightningOperation {
         // Extract creation timestamp
         let created_at = Some(parsed.timestamp());
 
+        // Extract network from BOLT11 currency prefix
+        let network = Some(match parsed.currency() {
+            lightning_invoice::Currency::Bitcoin => crate::nwc_protocol::NwcNetwork::Mainnet,
+            lightning_invoice::Currency::BitcoinTestnet => crate::nwc_protocol::NwcNetwork::Testnet,
+            lightning_invoice::Currency::Regtest => crate::nwc_protocol::NwcNetwork::Regtest,
+            lightning_invoice::Currency::Signet => crate::nwc_protocol::NwcNetwork::Signet,
+            _ => crate::nwc_protocol::NwcNetwork::Mainnet,
+        });
+
         Ok(Invoice {
             bolt11: Bolt11String::new(bolt11.to_string()),
             payment_hash,
@@ -65,6 +74,7 @@ impl LightningOperation {
             payee_pubkey,
             created_at,
             operation_id: None,
+            network,
         })
     }
 

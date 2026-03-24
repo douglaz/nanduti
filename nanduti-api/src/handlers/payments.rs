@@ -1,12 +1,10 @@
 //! Payment handlers
 
 use axum::{extract::State, http::StatusCode, Json};
-use lightning_invoice::Bolt11Invoice;
 use nanduti_core::models::{
-    Amount, Bolt11String, FederationId, Invoice, PaymentHash, Preimage, Timestamp, TransactionId,
+    Amount, Bolt11String, FederationId, PaymentHash, Preimage, Timestamp, TransactionId,
 };
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::state::AppState;
@@ -32,10 +30,8 @@ pub async fn pay_invoice(
     Json(req): Json<PayInvoiceRequest>,
 ) -> Result<Json<PayInvoiceResponse>, (StatusCode, String)> {
     // Parse the invoice
-    let bolt11 = Bolt11Invoice::from_str(req.invoice.as_str())
+    let invoice = nanduti_core::lightning::LightningOperation::parse_invoice(req.invoice.as_str())
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid invoice: {e}")))?;
-
-    let invoice = Invoice::from(&bolt11);
 
     // Select federation
     let federation = if let Some(fed_id) = req.federation_id {
@@ -45,13 +41,13 @@ pub async fn pay_invoice(
             .await
             .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?
     } else {
-        // Use router to select best federation
+        // Use router to select best federation, filtering by the invoice's network
         let amount = invoice
             .amount
             .ok_or_else(|| (StatusCode::BAD_REQUEST, "Invoice has no amount".to_string()))?;
         state
             .router
-            .select_federation(amount)
+            .select_federation_filtered(amount, None, invoice.network)
             .await
             .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?
     };

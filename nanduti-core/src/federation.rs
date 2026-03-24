@@ -25,6 +25,9 @@ pub struct Federation {
     pub balance: Amount,
     /// Federation status
     pub status: FederationStatus,
+    /// Bitcoin network this federation operates on
+    #[serde(default)]
+    pub network: crate::nwc_protocol::NwcNetwork,
     /// Performance metrics
     pub metrics: FederationMetrics,
     /// Client wrapper (not serialized)
@@ -101,6 +104,13 @@ impl FederationManager {
                                         federation.status = FederationStatus::Degraded;
                                     }
                                 }
+                                // Get network info
+                                if let Ok(info) = client.get_info().await {
+                                    federation.network =
+                                        crate::nwc_protocol::NwcNetwork::from_str_loose(
+                                            &info.network,
+                                        );
+                                }
                                 federation.client = Some(Arc::new(client));
                             }
                             Err(e) => {
@@ -151,6 +161,7 @@ impl FederationManager {
             invite_code: invite.clone(),
             balance: Amount::from_msats(0),
             status: FederationStatus::Initializing,
+            network: crate::nwc_protocol::NwcNetwork::Mainnet,
             metrics: FederationMetrics {
                 uptime_percent: 100.0,
                 success_rate: 100.0,
@@ -171,6 +182,17 @@ impl FederationManager {
         // Get initial balance
         federation.balance = client.get_balance().await?;
         federation.status = FederationStatus::Online;
+
+        // Get network from federation info
+        match client.get_info().await {
+            Ok(info) => {
+                federation.network = crate::nwc_protocol::NwcNetwork::from_str_loose(&info.network);
+            }
+            Err(e) => {
+                warn!("Failed to get network info: {e}, defaulting to mainnet");
+            }
+        }
+
         federation.client = Some(Arc::new(client));
 
         // Persist BEFORE updating the in-memory cache so a storage failure

@@ -528,6 +528,7 @@ impl FedimintClientWrapper {
             payee_pubkey: None,
             created_at: Some(invoice.timestamp()),
             operation_id: Some(hex::encode(operation_id.0)),
+            network: None,
         })
     }
 

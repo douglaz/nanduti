@@ -41,9 +41,10 @@ pub enum NwcNotificationType {
 ///
 /// This is separate from `bitcoin::Network` because NWC uses "mainnet"
 /// instead of "bitcoin" for the main network.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NwcNetwork {
+    #[default]
     Mainnet,
     Testnet,
     Signet,
