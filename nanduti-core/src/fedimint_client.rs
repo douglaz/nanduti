@@ -31,12 +31,15 @@ use crate::models::{
 
 /// Wrapper around the actual Fedimint client
 /// This abstracts the Fedimint client API for easier testing and maintenance
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FedimintClientWrapper {
     client: ClientHandleArc,
     federation_id: FederationId,
     federation_name: String,
     db_path: PathBuf,
+    /// Keeps the temporary directory alive for ephemeral (data_dir=None) clients.
+    /// When dropped, the temp directory and its database are cleaned up.
+    _temp_dir: Option<tempfile::TempDir>,
 }
 
 impl FedimintClientWrapper {
@@ -49,18 +52,19 @@ impl FedimintClientWrapper {
         // Create database path.
         // When data_dir is None (ephemeral mode), use a temporary directory so we
         // don't silently create persistent files or require NANDUTI_MNEMONIC_PASSWORD.
-        let _temp_dir; // must live as long as db_path
+        // The TempDir handle is stored in the struct to keep the directory alive.
+        let temp_dir_handle;
         let db_path = if let Some(dir) = data_dir {
             let p = dir.join(format!("federation_{federation_id}"));
             std::fs::create_dir_all(&p)?;
-            _temp_dir = None;
+            temp_dir_handle = None;
             p
         } else {
             let tmp = tempfile::tempdir()
                 .context("Failed to create temp dir for ephemeral federation")?;
             let p = tmp.path().join(format!("federation_{federation_id}"));
             std::fs::create_dir_all(&p)?;
-            _temp_dir = Some(tmp);
+            temp_dir_handle = Some(tmp);
             p
         };
 
@@ -101,6 +105,7 @@ impl FedimintClientWrapper {
                     federation_id,
                     federation_name,
                     db_path,
+                    _temp_dir: temp_dir_handle,
                 });
             }
         }
@@ -146,6 +151,7 @@ impl FedimintClientWrapper {
             federation_id,
             federation_name,
             db_path,
+            _temp_dir: temp_dir_handle,
         })
     }
 

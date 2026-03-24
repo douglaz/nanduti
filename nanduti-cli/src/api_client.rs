@@ -10,16 +10,52 @@ use serde_json::Value;
 pub struct ApiClient {
     client: Client,
     base_url: String,
+    api_secret: Option<String>,
 }
 
 impl ApiClient {
     /// Create a new API client
     pub fn new(base_url: String) -> Result<Self> {
+        let api_secret = std::env::var("API_SECRET").ok();
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
-        Ok(Self { client, base_url })
+        Ok(Self {
+            client,
+            base_url,
+            api_secret,
+        })
+    }
+
+    /// Build a request with optional bearer auth
+    fn authed_get(&self, url: String) -> reqwest::RequestBuilder {
+        let req = self.client.get(url);
+        if let Some(secret) = &self.api_secret {
+            req.bearer_auth(secret)
+        } else {
+            req
+        }
+    }
+
+    /// Build a POST request with optional bearer auth
+    fn authed_post(&self, url: String) -> reqwest::RequestBuilder {
+        let req = self.client.post(url);
+        if let Some(secret) = &self.api_secret {
+            req.bearer_auth(secret)
+        } else {
+            req
+        }
+    }
+
+    /// Build a DELETE request with optional bearer auth
+    fn authed_delete(&self, url: String) -> reqwest::RequestBuilder {
+        let req = self.client.delete(url);
+        if let Some(secret) = &self.api_secret {
+            req.bearer_auth(secret)
+        } else {
+            req
+        }
     }
 
     /// Check server health
@@ -52,8 +88,7 @@ impl ApiClient {
         let request = AddFederationRequest { invite_code };
 
         let response = self
-            .client
-            .post(format!(
+            .authed_post(format!(
                 "{base_url}/api/v1/federations",
                 base_url = self.base_url
             ))
@@ -67,8 +102,7 @@ impl ApiClient {
     /// List all federations
     pub async fn list_federations(&self) -> Result<Vec<FederationInfo>> {
         let response = self
-            .client
-            .get(format!(
+            .authed_get(format!(
                 "{base_url}/api/v1/federations",
                 base_url = self.base_url
             ))
@@ -81,8 +115,7 @@ impl ApiClient {
     /// Get federation details
     pub async fn get_federation(&self, id: &FederationId) -> Result<FederationInfo> {
         let response = self
-            .client
-            .get(format!(
+            .authed_get(format!(
                 "{base_url}/api/v1/federations/{id}",
                 base_url = self.base_url
             ))
@@ -95,8 +128,7 @@ impl ApiClient {
     /// Remove a federation
     pub async fn remove_federation(&self, id: &FederationId) -> Result<()> {
         let response = self
-            .client
-            .delete(format!(
+            .authed_delete(format!(
                 "{base_url}/api/v1/federations/{id}",
                 base_url = self.base_url
             ))
@@ -119,8 +151,7 @@ impl ApiClient {
     #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     pub async fn get_federation_balance(&self, id: &FederationId) -> Result<Value> {
         let response = self
-            .client
-            .get(format!(
+            .authed_get(format!(
                 "{base_url}/api/v1/federations/{id}/balance",
                 base_url = self.base_url
             ))
@@ -133,8 +164,7 @@ impl ApiClient {
     /// List federation gateways
     pub async fn list_federation_gateways(&self, id: &FederationId) -> Result<Vec<GatewayInfo>> {
         let response = self
-            .client
-            .get(format!(
+            .authed_get(format!(
                 "{base_url}/api/v1/federations/{id}/gateways",
                 base_url = self.base_url
             ))
@@ -152,8 +182,7 @@ impl ApiClient {
         request: CreateInvoiceRequest,
     ) -> Result<CreateInvoiceResponse> {
         let response = self
-            .client
-            .post(format!(
+            .authed_post(format!(
                 "{base_url}/api/v1/invoices",
                 base_url = self.base_url
             ))
@@ -169,8 +198,7 @@ impl ApiClient {
     /// Pay an invoice
     pub async fn pay_invoice(&self, request: PayInvoiceRequest) -> Result<PayInvoiceResponse> {
         let response = self
-            .client
-            .post(format!(
+            .authed_post(format!(
                 "{base_url}/api/v1/payments",
                 base_url = self.base_url
             ))
@@ -209,7 +237,7 @@ impl ApiClient {
             url.push_str(&params.join("&"));
         }
 
-        let response = self.client.get(url).send().await?;
+        let response = self.authed_get(url).send().await?;
 
         handle_response(response).await
     }
@@ -222,8 +250,7 @@ impl ApiClient {
         request: CreateConnectionRequest,
     ) -> Result<CreateConnectionResponse> {
         let response = self
-            .client
-            .post(format!(
+            .authed_post(format!(
                 "{base_url}/api/v1/nwc/connections",
                 base_url = self.base_url
             ))
@@ -237,8 +264,7 @@ impl ApiClient {
     /// List NWC connections
     pub async fn list_nwc_connections(&self) -> Result<Vec<ConnectionInfo>> {
         let response = self
-            .client
-            .get(format!(
+            .authed_get(format!(
                 "{base_url}/api/v1/nwc/connections",
                 base_url = self.base_url
             ))

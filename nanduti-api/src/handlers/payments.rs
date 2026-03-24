@@ -153,10 +153,13 @@ pub async fn pay_invoice(
     transaction.fees_paid = result.fees_paid;
     transaction.settled_at = Some(Timestamp::now());
 
-    // Update stored transaction — clean up in-flight marker on failure
+    // Best-effort update: the Lightning payment already succeeded, so we must
+    // return success to avoid callers retrying a payment that already left the
+    // wallet. Log the error for reconciliation but don't fail the response.
     if let Err(e) = state.storage.store_transaction(&transaction) {
-        state.in_flight_payments.lock().await.remove(&ph);
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+        tracing::error!(
+            "Failed to persist settled payment {ph}: {e}. Payment was sent successfully."
+        );
     }
 
     // Refresh the federation's cached balance so subsequent routing and

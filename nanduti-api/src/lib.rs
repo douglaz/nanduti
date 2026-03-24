@@ -151,11 +151,20 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     // Start Nostr event handling loop in background
     let event_handler = app_state.nwc_handler.clone();
     let nostr_clone = app_state.nostr_client.clone();
+    let storage_clone = app_state.storage.clone();
     tokio::spawn(async move {
-        if let Err(error) = handle_nostr_events(nostr_clone, event_handler).await {
+        if let Err(error) = handle_nostr_events(nostr_clone, event_handler, storage_clone).await {
             tracing::error!("Nostr event handler error: {error}");
         }
     });
+
+    // Warn if no API secret is set and binding to non-loopback
+    if config.api_secret.is_none() && config.host != "127.0.0.1" && config.host != "::1" {
+        tracing::warn!(
+            "REST API is unauthenticated and bound to {}. Set API_SECRET to require bearer token auth.",
+            config.host
+        );
+    }
 
     // Create HTTP server with REST API routes
     let ip: std::net::IpAddr = config
@@ -163,7 +172,7 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
         .parse()
         .with_context(|| format!("Invalid host address: {}", config.host))?;
     let addr = std::net::SocketAddr::from((ip, config.port));
-    let http_router = create_http_router(app_state.clone());
+    let http_router = create_http_router(app_state.clone(), config.api_secret.clone());
     let server = Server::new(http_router, addr);
 
     info!("NWC server started successfully");
@@ -187,8 +196,12 @@ async fn publish_info_event(client: &NostrClient) -> Result<()> {
 
 /// Handle incoming Nostr events
 /// Starts the Nostr event loop that listens for NWC requests and processes them
-async fn handle_nostr_events(client: Arc<NostrClient>, handler: Arc<NwcHandler>) -> Result<()> {
-    client.handle_nwc_events(handler).await
+async fn handle_nostr_events(
+    client: Arc<NostrClient>,
+    handler: Arc<NwcHandler>,
+    storage: Arc<nanduti_core::storage::Storage>,
+) -> Result<()> {
+    client.handle_nwc_events(handler, storage).await
 }
 
 use serde::Serialize;
@@ -199,51 +212,84 @@ struct HealthResponse {
 }
 
 /// Create HTTP router with all REST API endpoints
-fn create_http_router(app_state: Arc<AppState>) -> axum::Router {
+fn create_http_router(app_state: Arc<AppState>, api_secret: Option<String>) -> axum::Router {
     use axum::{
         routing::{get, post},
         Json,
     };
 
-    axum::Router::new()
-        // Health check
-        .route(
-            "/health",
-            get(|| async { Json(HealthResponse { status: "ok" }) }),
-        )
+    // Authenticated API routes
+    let api_routes = axum::Router::new()
         // Federation management endpoints
         .route(
-            "/api/v1/federations",
+            "/federations",
             get(handlers::federations::list_federations)
                 .post(handlers::federations::add_federation),
         )
         .route(
-            "/api/v1/federations/{id}",
+            "/federations/{id}",
             get(handlers::federations::get_federation)
                 .delete(handlers::federations::remove_federation),
         )
         .route(
-            "/api/v1/federations/{id}/balance",
+            "/federations/{id}/balance",
             get(handlers::federations::get_federation_balance),
         )
         .route(
-            "/api/v1/federations/{id}/gateways",
+            "/federations/{id}/gateways",
             get(handlers::federations::list_federation_gateways),
         )
         // Invoice endpoints
-        .route("/api/v1/invoices", post(handlers::invoices::create_invoice))
+        .route("/invoices", post(handlers::invoices::create_invoice))
         // Payment endpoints
-        .route("/api/v1/payments", post(handlers::payments::pay_invoice))
+        .route("/payments", post(handlers::payments::pay_invoice))
         // Transaction endpoints
         .route(
-            "/api/v1/transactions",
+            "/transactions",
             get(handlers::transactions::list_transactions),
         )
         // NWC connection endpoints
         .route(
-            "/api/v1/nwc/connections",
+            "/nwc/connections",
             get(handlers::nwc::list_nwc_connections).post(handlers::nwc::create_nwc_connection),
+        );
+
+    // Apply bearer token auth middleware when api_secret is configured
+    let api_routes = if let Some(secret) = api_secret {
+        api_routes.layer(axum::middleware::from_fn(
+            move |req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| {
+                let expected = secret.clone();
+                async move {
+                    let auth_header = req
+                        .headers()
+                        .get(axum::http::header::AUTHORIZATION)
+                        .and_then(|v| v.to_str().ok());
+
+                    match auth_header {
+                        Some(header) if header.starts_with("Bearer ") => {
+                            let token = &header["Bearer ".len()..];
+                            if token == expected {
+                                Ok(next.run(req).await)
+                            } else {
+                                Err(axum::http::StatusCode::UNAUTHORIZED)
+                            }
+                        }
+                        _ => Err(axum::http::StatusCode::UNAUTHORIZED),
+                    }
+                }
+            },
+        ))
+    } else {
+        api_routes
+    };
+
+    axum::Router::new()
+        // Health check (unauthenticated)
+        .route(
+            "/health",
+            get(|| async { Json(HealthResponse { status: "ok" }) }),
         )
+        .nest("/api/v1", api_routes)
         // Add shared state to all routes
         .with_state(app_state)
 }
@@ -259,4 +305,8 @@ pub struct ServerConfig {
     pub daily_limit_amount: Option<Amount>,
     /// Fedimint invite codes to join on startup
     pub federations: Vec<String>,
+    /// Optional bearer token for REST API authentication.
+    /// When set, all `/api/v1/*` endpoints require `Authorization: Bearer <token>`.
+    /// When None, the API is unauthenticated (suitable for loopback-only access).
+    pub api_secret: Option<String>,
 }

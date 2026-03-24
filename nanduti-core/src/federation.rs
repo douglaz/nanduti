@@ -104,12 +104,16 @@ impl FederationManager {
                                         federation.status = FederationStatus::Degraded;
                                     }
                                 }
-                                // Get network info
+                                // Get network info and real federation name
                                 if let Ok(info) = client.get_info().await {
                                     federation.network =
                                         crate::nwc_protocol::NwcNetwork::from_str_loose(
                                             &info.network,
                                         );
+                                    // Update the placeholder name with the real federation name
+                                    if !info.federation_name.is_empty() {
+                                        federation.name = FederationName::new(info.federation_name);
+                                    }
                                 }
                                 federation.client = Some(Arc::new(client));
                             }
@@ -183,10 +187,14 @@ impl FederationManager {
         federation.balance = client.get_balance().await?;
         federation.status = FederationStatus::Online;
 
-        // Get network from federation info
+        // Get network and real federation name from federation info
         match client.get_info().await {
             Ok(info) => {
                 federation.network = crate::nwc_protocol::NwcNetwork::from_str_loose(&info.network);
+                // Update the placeholder name with the real federation name
+                if !info.federation_name.is_empty() {
+                    federation.name = FederationName::new(info.federation_name);
+                }
             }
             Err(e) => {
                 warn!("Failed to get network info: {e}, defaulting to mainnet");

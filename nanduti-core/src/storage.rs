@@ -40,6 +40,8 @@ pub struct Storage {
     tx_by_payment_hash: Option<sled::Tree>,
     tx_by_invoice: Option<sled::Tree>,
     conn_by_pubkey: Option<sled::Tree>,
+    /// Processed Nostr event IDs for cross-restart deduplication
+    processed_events: Option<sled::Tree>,
     /// Optional encryption key for transaction data (32 bytes for AES-256)
     encryption_key: Option<[u8; 32]>,
 }
@@ -64,6 +66,7 @@ impl Storage {
             tx_by_payment_hash,
             tx_by_invoice,
             conn_by_pubkey,
+            processed_events,
         ) = match data_dir {
             Some(dir) => {
                 let dir_path = dir.display();
@@ -106,6 +109,10 @@ impl Storage {
                     db.open_tree("idx_conn_pubkey")
                         .context("Failed to open conn_by_pubkey index")?,
                 );
+                let processed_events = Some(
+                    db.open_tree("processed_events")
+                        .context("Failed to open processed_events tree")?,
+                );
 
                 (
                     Some(Arc::new(db)),
@@ -115,6 +122,7 @@ impl Storage {
                     tx_by_payment_hash,
                     tx_by_invoice,
                     conn_by_pubkey,
+                    processed_events,
                 )
             }
             None => {
@@ -153,6 +161,10 @@ impl Storage {
                     db.open_tree("idx_conn_pubkey")
                         .context("Failed to open conn_by_pubkey index")?,
                 );
+                let processed_events = Some(
+                    db.open_tree("processed_events")
+                        .context("Failed to open processed_events tree")?,
+                );
 
                 (
                     Some(Arc::new(db)),
@@ -162,6 +174,7 @@ impl Storage {
                     tx_by_payment_hash,
                     tx_by_invoice,
                     conn_by_pubkey,
+                    processed_events,
                 )
             }
         };
@@ -180,6 +193,7 @@ impl Storage {
             tx_by_payment_hash,
             tx_by_invoice,
             conn_by_pubkey,
+            processed_events,
             encryption_key,
         })
     }
@@ -939,6 +953,85 @@ impl Storage {
             debug!("Database flushed to disk");
         }
         Ok(())
+    }
+
+    // --- Processed event deduplication ---
+
+    /// Record a Nostr event ID as processed.
+    /// Stores the current Unix timestamp (seconds) as the value for later pruning.
+    pub fn mark_event_processed(&self, event_id: &str) -> Result<()> {
+        if let Some(tree) = &self.processed_events {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            tree.insert(event_id.as_bytes(), &now.to_be_bytes())?;
+        }
+        Ok(())
+    }
+
+    /// Check whether an event ID has been processed.
+    pub fn is_event_processed(&self, event_id: &str) -> Result<bool> {
+        if let Some(tree) = &self.processed_events {
+            Ok(tree.contains_key(event_id.as_bytes())?)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Load all event IDs processed within the last `window_secs` seconds.
+    /// Used at startup to seed the in-memory LRU cache.
+    pub fn load_recent_event_ids(&self, window_secs: u64) -> Result<Vec<String>> {
+        let Some(tree) = &self.processed_events else {
+            return Ok(Vec::new());
+        };
+
+        let cutoff = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .saturating_sub(window_secs);
+
+        let mut ids = Vec::new();
+        for entry in tree.iter() {
+            let (key, val) = entry.context("Failed to read processed_events entry")?;
+            if val.len() == 8 {
+                let ts = u64::from_be_bytes(val.as_ref().try_into().unwrap());
+                if ts >= cutoff {
+                    if let Ok(id) = std::str::from_utf8(&key) {
+                        ids.push(id.to_string());
+                    }
+                }
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Remove processed event entries older than `max_age_secs`.
+    /// Call periodically to prevent unbounded growth.
+    pub fn prune_old_events(&self, max_age_secs: u64) -> Result<usize> {
+        let Some(tree) = &self.processed_events else {
+            return Ok(0);
+        };
+
+        let cutoff = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .saturating_sub(max_age_secs);
+
+        let mut pruned = 0;
+        for entry in tree.iter() {
+            let (key, val) = entry.context("Failed to read processed_events entry")?;
+            if val.len() == 8 {
+                let ts = u64::from_be_bytes(val.as_ref().try_into().unwrap());
+                if ts < cutoff {
+                    tree.remove(&key)?;
+                    pruned += 1;
+                }
+            }
+        }
+        Ok(pruned)
     }
 }
 

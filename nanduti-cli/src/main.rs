@@ -150,6 +150,12 @@ struct ServeArgs {
         env = "ROUTING_STRATEGY"
     )]
     routing_strategy: RoutingStrategyArg,
+
+    /// API secret for bearer token authentication.
+    /// When set, all /api/v1/* endpoints require Authorization: Bearer <secret>.
+    /// Strongly recommended when binding to non-loopback addresses.
+    #[arg(long, env = "API_SECRET")]
+    api_secret: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -377,6 +383,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         max_payment_amount: args.max_payment_sats.map(Amount::from_sats),
         daily_limit_amount: args.daily_limit_sats.map(Amount::from_sats),
         federations: args.federations,
+        api_secret: args.api_secret,
     };
 
     // Start server

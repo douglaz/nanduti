@@ -143,56 +143,7 @@ jobs:
             docker push $IMAGE_ID:${{ github.sha }}
           fi
 
-  release:
-    name: Release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [check, test, build, docker]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: nanduti-*
-          merge-multiple: true
-          path: ./artifacts
-      
-      - name: Create checksums
-        run: |
-          cd artifacts
-          sha256sum * > SHA256SUMS
-          cd ..
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
-          files: |
-            artifacts/*
-          body: |
-            ## Nanduti ${{ github.ref_name }}
-            
-            ### Installation
-            
-            #### Using Nix
-            ```bash
-            nix run "github:${{ github.repository }}/${{ github.ref_name }}"
-            ```
-
-            #### Using Docker
-            ```bash
-            docker pull ghcr.io/${{ github.repository_owner }}/nanduti:latest
-            ```
-            
-            #### Binary Download
-            Download the appropriate binary for your platform from the assets below.
-            
-            ### Changelog
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md) for details.
-            
-            ### Checksums
-            Verify your download with the SHA256SUMS file.
+  # Note: GitHub Release creation is handled by the release.yml workflow
+  # (workflow_dispatch). That workflow pushes a tag, which triggers CI
+  # for check/test/build/docker, but release creation lives only in
+  # release.yml to avoid a race between two competing release jobs.

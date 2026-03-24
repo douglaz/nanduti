@@ -90,10 +90,15 @@ pub async fn create_invoice(
         created_at: Timestamp::now(),
         settled_at: None,
     };
-    state
-        .storage
-        .store_transaction(&transaction)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // Best-effort persist: the invoice already exists upstream, so we return
+    // it to the caller even if local storage fails. A failed write means the
+    // settlement watcher won't start, but the invoice can still be paid.
+    if let Err(e) = state.storage.store_transaction(&transaction) {
+        tracing::error!(
+            "Failed to persist invoice {}: {e}. Invoice was created successfully.",
+            invoice.payment_hash
+        );
+    }
 
     // Spawn background task to watch for invoice settlement
     if let (Some(op_id), Some(client_ref)) = (&invoice.operation_id, &federation.client) {

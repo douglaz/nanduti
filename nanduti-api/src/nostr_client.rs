@@ -219,16 +219,39 @@ impl NostrClient {
     }
 
     /// Handle incoming NWC events
-    pub async fn handle_nwc_events(&self, handler: Arc<crate::NwcHandler>) -> Result<()> {
+    pub async fn handle_nwc_events(
+        &self,
+        handler: Arc<crate::NwcHandler>,
+        storage: Arc<nanduti_core::storage::Storage>,
+    ) -> Result<()> {
         use lru::LruCache;
         use std::num::NonZeroUsize;
 
         // Track processed events to avoid duplicates using LRU cache
-        // Capacity of 10,000 provides good memory bounds while preventing duplicate processing
         // Large capacity since we don't advance the `since` cursor and rely
         // entirely on this LRU for dedup within a server session.
         const EVENT_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
         let mut processed_events = LruCache::new(EVENT_CACHE_CAPACITY);
+
+        // Seed from persistent storage so events processed before a restart
+        // are not replayed when the sliding window re-fetches them.
+        match storage.load_recent_event_ids(600) {
+            Ok(ids) => {
+                let mut count = 0;
+                for id in ids {
+                    if let Ok(event_id) = nostr_sdk::EventId::from_hex(&id) {
+                        processed_events.put(event_id, ());
+                        count += 1;
+                    }
+                }
+                if count > 0 {
+                    info!("Loaded {count} processed event IDs from storage");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load processed events from storage: {e}");
+            }
+        }
 
         // Subscribe to NWC request events (kind 23194) sent to us.
         // Use a sliding `since` window with a clock-skew tolerance so that:
@@ -276,6 +299,13 @@ impl NostrClient {
                             continue;
                         }
 
+                        // Also check persistent storage for cross-restart dedup
+                        let event_id_hex = event.id.to_hex();
+                        if storage.is_event_processed(&event_id_hex).unwrap_or(false) {
+                            processed_events.put(event.id, ());
+                            continue;
+                        }
+
                         let event_id = event.id;
                         if let Err(e) = self.handle_single_event(event, handler.clone()).await {
                             // Errors from handle_single_event are permanent failures
@@ -284,10 +314,12 @@ impl NostrClient {
                             // prevent infinite retry of malformed events.
                             tracing::warn!("Permanently failed event {event_id}: {e}");
                             processed_events.put(event_id, ());
+                            let _ = storage.mark_event_processed(&event_id.to_hex());
                             continue;
                         }
 
                         processed_events.put(event_id, ());
+                        let _ = storage.mark_event_processed(&event_id.to_hex());
                     }
 
                     // Advance the sliding window using server time minus the
@@ -306,9 +338,12 @@ impl NostrClient {
                     );
 
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-                        anyhow::bail!(
-                            "Too many consecutive errors in event handler ({MAX_CONSECUTIVE_ERRORS}), shutting down"
+                        tracing::error!(
+                            "Hit {MAX_CONSECUTIVE_ERRORS} consecutive errors, reconnecting relays"
                         );
+                        // Attempt to reconnect instead of dying permanently
+                        self.client.connect().await;
+                        consecutive_errors = 0;
                     }
 
                     // Exponential backoff with proper cap
