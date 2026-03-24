@@ -85,7 +85,12 @@ pub async fn pay_invoice(
             .get_transactions_by_payment_hash(&invoice.payment_hash)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        for tx in existing_txs {
+        // Only check outgoing transactions — incoming invoices with the same
+        // payment hash should not block outgoing payments (e.g. rebalancing).
+        for tx in existing_txs
+            .into_iter()
+            .filter(|tx| tx.transaction_type == TransactionType::Outgoing)
+        {
             if tx.state == TransactionState::Settled {
                 return Err((
                     StatusCode::CONFLICT,

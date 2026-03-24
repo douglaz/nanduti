@@ -352,7 +352,15 @@ impl NwcHandler {
                     .get_transactions_by_payment_hash(&invoice.payment_hash)
                     .context("Failed to check for duplicate payments")?;
 
-                for tx in existing_txs {
+                // Only check outgoing transactions for duplicates — incoming
+                // invoices with the same payment hash (e.g. for rebalancing
+                // across federations) should not block outgoing payments.
+                let outgoing_txs: Vec<_> = existing_txs
+                    .into_iter()
+                    .filter(|tx| tx.transaction_type == TransactionType::Outgoing)
+                    .collect();
+
+                for tx in outgoing_txs {
                     if tx.state == TransactionState::Settled {
                         warn!(
                             "Duplicate payment attempt detected for payment_hash {} by connection {}",

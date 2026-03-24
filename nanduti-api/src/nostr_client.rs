@@ -383,9 +383,16 @@ impl NostrClient {
         let encrypted_response =
             encryption::encrypt_nip44(&response_content, &event.pubkey, &self.keys)?;
 
-        // Send response
-        self.send_nwc_response(event.id.to_hex(), event.pubkey.to_hex(), encrypted_response)
-            .await?;
+        // Send response — log but don't propagate send failures since the
+        // request was already processed. Returning Err here would prevent the
+        // event from being marked as processed, causing infinite retry even
+        // though the handler already executed (potentially with side effects).
+        if let Err(e) = self
+            .send_nwc_response(event.id.to_hex(), event.pubkey.to_hex(), encrypted_response)
+            .await
+        {
+            tracing::warn!("Failed to send NWC response for event {}: {e}", event.id);
+        }
 
         Ok(())
     }

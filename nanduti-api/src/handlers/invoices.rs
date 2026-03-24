@@ -41,17 +41,13 @@ pub async fn create_invoice(
             .await
             .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?
     } else {
-        // Select first online federation
-        let federations = state.federation_manager.list_federations().await;
-        federations
-            .into_iter()
-            .find(|f| f.status == nanduti_core::federation::FederationStatus::Online)
-            .ok_or_else(|| {
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "No online federations".to_string(),
-                )
-            })?
+        // Use the receive router for proper federation selection policy
+        // instead of arbitrarily picking the first online federation.
+        state
+            .router
+            .select_federation_for_receive()
+            .await
+            .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?
     };
 
     // Get client
