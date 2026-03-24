@@ -225,7 +225,9 @@ impl NostrClient {
 
         // Track processed events to avoid duplicates using LRU cache
         // Capacity of 10,000 provides good memory bounds while preventing duplicate processing
-        const EVENT_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(10000).unwrap();
+        // Large capacity since we don't advance the `since` cursor and rely
+        // entirely on this LRU for dedup within a server session.
+        const EVENT_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
         let mut processed_events = LruCache::new(EVENT_CACHE_CAPACITY);
 
         // Subscribe to NWC request events (kind 23194) sent to us.
@@ -246,10 +248,12 @@ impl NostrClient {
         // Use proper event streaming (subscribe and poll)
         self.client.subscribe(filter.clone(), None).await?;
 
-        // Track server wall-clock time to advance the `since` window.
-        // We use server time (not sender-supplied event.created_at) to avoid
-        // clock-skew issues, and only advance after a clean poll cycle.
-        let mut latest_seen = now;
+        // The `since` filter is fixed at startup time to prevent replaying
+        // pre-startup events. We do NOT advance it because:
+        // - Advancing with event.created_at breaks on sender clock skew
+        // - Advancing with server time drops events from behind-clock clients
+        // The processed_events LRU (10k capacity) handles dedup within the session.
+        let latest_seen = now;
 
         // Circuit breaker for error handling
         let mut consecutive_errors = 0;
@@ -284,9 +288,8 @@ impl NostrClient {
                         processed_events.put(event_id, ());
                     }
 
-                    // Advance latest_seen using server wall-clock time to prevent
-                    // LRU eviction from replaying old events on long-lived servers.
-                    latest_seen = Timestamp::now();
+                    // Note: latest_seen is intentionally NOT advanced. See comment
+                    // at its declaration for the rationale.
                 }
                 Err(e) => {
                     consecutive_errors += 1;

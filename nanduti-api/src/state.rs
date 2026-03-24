@@ -137,9 +137,7 @@ impl AppState {
             max_payment_amount,
             daily_limit_amount,
             relays,
-            in_flight_payments: std::sync::Arc::new(tokio::sync::Mutex::new(
-                std::collections::HashSet::new(),
-            )),
+            in_flight_payments,
         })
     }
 }

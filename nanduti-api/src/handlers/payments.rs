@@ -126,11 +126,11 @@ pub async fn pay_invoice(
         settled_at: None,
     };
 
-    // Store pending transaction
-    state
-        .storage
-        .store_transaction(&transaction)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // Store pending transaction — clean up in-flight marker on failure
+    if let Err(e) = state.storage.store_transaction(&transaction) {
+        state.in_flight_payments.lock().await.remove(&ph);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
 
     // Pay the invoice
     let result = match client.pay_invoice(&invoice, invoice.amount).await {
@@ -152,11 +152,11 @@ pub async fn pay_invoice(
     transaction.fees_paid = result.fees_paid;
     transaction.settled_at = Some(Timestamp::now());
 
-    // Update stored transaction
-    state
-        .storage
-        .store_transaction(&transaction)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // Update stored transaction — clean up in-flight marker on failure
+    if let Err(e) = state.storage.store_transaction(&transaction) {
+        state.in_flight_payments.lock().await.remove(&ph);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
 
     // Refresh the federation's cached balance so subsequent routing and
     // balance queries reflect the spend immediately.
