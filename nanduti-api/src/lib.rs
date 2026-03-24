@@ -40,9 +40,11 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     );
 
     // Expire stale pending outgoing transactions from before this startup.
-    // Transactions pending for more than 1 hour are assumed to be from a
-    // previous crashed session and are marked Failed so they don't block retries.
-    match app_state.storage.expire_stale_pending(3600) {
+    // Use a generous 24-hour window to avoid prematurely marking slow Fedimint
+    // operations as failed, which could enable duplicate payments if the original
+    // settles later. The underlying Fedimint operation may still complete; the
+    // payment hash index will catch any resulting Settled record.
+    match app_state.storage.expire_stale_pending(86400) {
         Ok(0) => {}
         Ok(n) => info!("Expired {n} stale pending outgoing transactions"),
         Err(e) => tracing::warn!("Failed to expire stale pending transactions: {e}"),

@@ -504,25 +504,16 @@ impl Storage {
         limit: Option<usize>,
     ) -> Result<Vec<Transaction>> {
         const MAX_LIMIT: usize = 1000;
-        const MAX_SCAN: usize = 10_000;
 
         // When callers pass None they need full history for post-retrieval
-        // pagination/filtering — only the MAX_SCAN safety cap applies.
-        // When a specific limit is requested, cap it at MAX_LIMIT.
+        // pagination/filtering. When a specific limit is requested, cap it.
         let limit = limit.map(|l| l.min(MAX_LIMIT));
         let mut transactions = Vec::new();
-        let mut scanned = 0;
 
         if let Some(tree) = &self.transactions {
+            // Scan all transactions — sled iterates by key order (UUID-based),
+            // so we must scan everything to find all records for this federation.
             for item in tree.iter() {
-                scanned += 1;
-                if scanned > MAX_SCAN {
-                    warn!(
-                        "Transaction scan exceeded {MAX_SCAN} items for federation {federation_id}, aborting"
-                    );
-                    break;
-                }
-
                 let (_, value) = item.context("Failed to read transaction item")?;
                 let transaction = self.deserialize_transaction(&value)?;
 
@@ -916,11 +907,15 @@ impl Storage {
                     && transaction.transaction_type == crate::models::TransactionType::Outgoing
                     && transaction.created_at.as_secs() < cutoff
                 {
+                    // Mark as Failed so it doesn't block retries. Note: the
+                    // underlying Fedimint operation may still settle later; the
+                    // duplicate-payment check uses the payment hash index which
+                    // will see any new Settled record if that happens.
                     transaction.state = crate::models::TransactionState::Failed;
                     self.store_transaction(&transaction)?;
                     expired += 1;
-                    info!(
-                        "Expired stale pending outgoing transaction: {}",
+                    warn!(
+                        "Expired stale pending outgoing transaction: {} (may have settled externally)",
                         transaction.id
                     );
                 }

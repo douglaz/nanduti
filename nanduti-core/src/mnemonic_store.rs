@@ -90,15 +90,26 @@ impl MnemonicStore {
         file_content.extend_from_slice(&nonce_bytes);
         file_content.extend_from_slice(&ciphertext);
 
-        // Write to file
-        tokio::fs::write(&path, file_content)
-            .await
-            .with_context(|| {
+        // Write to file with owner-only permissions (0600) to prevent other
+        // local users from reading the encrypted mnemonic for offline brute-force.
+        {
+            use std::io::Write;
+            #[cfg(unix)]
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            opts.mode(0o600);
+            let mut file = opts
+                .open(&path)
+                .with_context(|| format!("Failed to create mnemonic file: {}", path.display()))?;
+            file.write_all(&file_content).with_context(|| {
                 format!(
                     "Failed to write mnemonic file to {path}",
                     path = path.display()
                 )
             })?;
+        }
 
         Ok(())
     }

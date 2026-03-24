@@ -821,7 +821,11 @@ impl NwcHandler {
     async fn handle_get_info(&self) -> Result<NwcResponse> {
         use nanduti_core::nwc_protocol::NwcNetwork;
 
-        // Get first online federation for network info
+        // Determine network from online federations. If multiple federations
+        // report different networks, log a warning — mixed-network deployments
+        // are not fully supported and can cause routing failures.
+        // TODO: Add network metadata to Federation and enforce single-network
+        // routing in select_federation_filtered.
         let federations = self.federation_manager.list_federations().await;
         let online_federation = federations
             .iter()

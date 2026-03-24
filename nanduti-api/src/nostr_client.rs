@@ -231,29 +231,31 @@ impl NostrClient {
         let mut processed_events = LruCache::new(EVENT_CACHE_CAPACITY);
 
         // Subscribe to NWC request events (kind 23194) sent to us.
-        // Use a `since` filter set to the current time so we only process events
-        // that arrive after the server starts, preventing replay of historical
-        // requests (which could re-trigger payments after a restart).
+        // Use a sliding `since` window with a clock-skew tolerance so that:
+        // 1. We don't replay the full pre-startup history
+        // 2. Clients whose clocks are behind by up to CLOCK_SKEW_TOLERANCE are not dropped
+        // 3. The query window doesn't grow unbounded on long-lived servers
+        const CLOCK_SKEW_TOLERANCE_SECS: u64 = 300; // 5 minutes
         let now = Timestamp::now();
+        let startup_since =
+            Timestamp::from_secs(now.as_u64().saturating_sub(CLOCK_SKEW_TOLERANCE_SECS));
         let base_filter = Filter::new()
             .kind(Kind::from(23194))
             .pubkey(self.keys.public_key());
-        let filter = base_filter.clone().since(now);
+        let filter = base_filter.clone().since(startup_since);
 
         info!(
-            "Listening for NWC requests on {relay_count} relays (since {now})",
+            "Listening for NWC requests on {relay_count} relays (since {startup_since}, skew tolerance {CLOCK_SKEW_TOLERANCE_SECS}s)",
             relay_count = self.client.relays().await.len()
         );
 
         // Use proper event streaming (subscribe and poll)
         self.client.subscribe(filter.clone(), None).await?;
 
-        // The `since` filter is fixed at startup time to prevent replaying
-        // pre-startup events. We do NOT advance it because:
-        // - Advancing with event.created_at breaks on sender clock skew
-        // - Advancing with server time drops events from behind-clock clients
-        // The processed_events LRU (10k capacity) handles dedup within the session.
-        let latest_seen = now;
+        // Sliding window: advance `poll_since` using the server's monotonic
+        // sense of time minus the skew tolerance, so behind-clock events stay
+        // in the window while the query doesn't grow unbounded.
+        let mut poll_since = startup_since;
 
         // Circuit breaker for error handling
         let mut consecutive_errors = 0;
@@ -263,8 +265,8 @@ impl NostrClient {
 
         // Poll for events continuously
         loop {
-            // Query only for events newer than the last one we processed
-            let poll_filter = base_filter.clone().since(latest_seen);
+            // Query using the sliding window (server time minus skew tolerance)
+            let poll_filter = base_filter.clone().since(poll_since);
             match self.client.database().query(poll_filter).await {
                 Ok(events) => {
                     consecutive_errors = 0; // Reset error counter on success
@@ -288,8 +290,14 @@ impl NostrClient {
                         processed_events.put(event_id, ());
                     }
 
-                    // Note: latest_seen is intentionally NOT advanced. See comment
-                    // at its declaration for the rationale.
+                    // Advance the sliding window using server time minus the
+                    // skew tolerance. This keeps the query bounded while still
+                    // accepting events from behind-clock clients.
+                    poll_since = Timestamp::from_secs(
+                        Timestamp::now()
+                            .as_u64()
+                            .saturating_sub(CLOCK_SKEW_TOLERANCE_SECS),
+                    );
                 }
                 Err(e) => {
                     consecutive_errors += 1;
