@@ -1,0 +1,443 @@
+//! Nostr relay connection and message handling
+
+use anyhow::{Context, Result};
+use nanduti_core::models::{Amount, Bolt11String, PaymentHash, PaymentType, Preimage};
+use nostr_sdk::prelude::*;
+use std::sync::Arc;
+use tracing::{debug, info};
+
+/// Manages connection to Nostr relays
+pub struct NostrClient {
+    client: Client,
+    keys: Keys,
+}
+
+impl NostrClient {
+    /// Create a new Nostr client
+    pub async fn new(relays: Vec<String>, secret_key: Option<String>) -> Result<Self> {
+        // Generate or use provided keys
+        let keys = if let Some(secret) = secret_key {
+            Keys::parse(&secret)?
+        } else {
+            Keys::generate()
+        };
+
+        let client = Client::new(keys.clone());
+
+        // Add relays
+        for relay_url in relays {
+            client
+                .add_relay(&relay_url)
+                .await
+                .with_context(|| format!("Failed to add relay {relay_url}"))?;
+        }
+
+        // Connect to relays
+        client.connect().await;
+
+        let relay_count = client.relays().await.len();
+        info!("Connected to {relay_count} relays");
+
+        Ok(Self { client, keys })
+    }
+
+    /// Get the client's public key
+    pub fn public_key(&self) -> String {
+        self.keys.public_key().to_hex()
+    }
+
+    /// Subscribe to NWC requests
+    pub async fn subscribe_nwc_requests(&self) -> Result<()> {
+        // Subscribe to kind 23194 events sent to us
+        let filter = Filter::new()
+            .kind(Kind::from(23194))
+            .pubkey(self.keys.public_key());
+
+        self.client.subscribe(filter, None).await?;
+
+        debug!("Subscribed to NWC requests");
+        Ok(())
+    }
+
+    /// Send NWC response
+    pub async fn send_nwc_response(
+        &self,
+        request_id: String,
+        recipient_pubkey: String,
+        encrypted_content: String,
+    ) -> Result<()> {
+        let recipient = PublicKey::from_hex(&recipient_pubkey)?;
+
+        // Create response event (kind 23195)
+        let event_builder = EventBuilder::new(Kind::from(23195), encrypted_content).tags(vec![
+            Tag::public_key(recipient),
+            Tag::event(EventId::from_hex(&request_id)?),
+        ]);
+
+        let event = self.client.sign_event_builder(event_builder).await?;
+
+        self.client.send_event(&event).await?;
+
+        debug!("Sent NWC response to {recipient_pubkey}");
+        Ok(())
+    }
+
+    /// Send info event with default capabilities
+    pub async fn publish_info_event(&self) -> Result<()> {
+        use nanduti_core::nwc_protocol::NwcMethod;
+
+        // Note: pay_keysend is not advertised because Fedimint doesn't support it yet
+        let capabilities = [
+            NwcMethod::PayInvoice.to_string(),
+            NwcMethod::MakeInvoice.to_string(),
+            NwcMethod::GetBalance.to_string(),
+            NwcMethod::ListTransactions.to_string(),
+            NwcMethod::GetInfo.to_string(),
+            NwcMethod::LookupInvoice.to_string(),
+        ];
+
+        // Don't advertise notifications until settlement events are actually
+        // emitted — clients that subscribe based on this will wait for pushes
+        // that never arrive. Keep the notifications tag empty.
+        let content = capabilities.join(" ");
+
+        let event_builder = EventBuilder::new(Kind::from(13194), content).tags(vec![
+            // Only advertise nip44_v2 — we only implement nip44 decryption,
+            // so advertising nip04 would cause clients to send messages we can't read.
+            Tag::custom(
+                TagKind::Custom("encryption".into()),
+                vec!["nip44_v2".to_string()],
+            ),
+        ]);
+
+        let event = self.client.sign_event_builder(event_builder).await?;
+
+        self.client.send_event(&event).await?;
+
+        info!("Published NWC info event");
+        Ok(())
+    }
+
+    /// Send notification event
+    pub async fn send_notification(
+        &self,
+        recipient_pubkey: &PublicKey,
+        notification_type: nanduti_core::nwc_protocol::NwcNotificationType,
+        notification_data: nanduti_core::nwc_protocol::NotificationData,
+    ) -> Result<()> {
+        use crate::encryption;
+
+        // Create notification payload
+        let notification = nanduti_core::nwc_protocol::NostrNotification {
+            notification_type,
+            notification: notification_data,
+        };
+
+        let content = serde_json::to_string(&notification)?;
+
+        // Encrypt with NIP-44 (modern encryption)
+        // Send NIP-44 version (kind 23197)
+        let encrypted_nip44 = encryption::encrypt_nip44(&content, recipient_pubkey, &self.keys)?;
+        let event_builder_nip44 = EventBuilder::new(Kind::from(23197), encrypted_nip44)
+            .tag(Tag::public_key(*recipient_pubkey));
+        let event_nip44 = self.client.sign_event_builder(event_builder_nip44).await?;
+
+        self.client.send_event(&event_nip44).await?;
+
+        debug!(
+            "Sent {} notification to {}",
+            notification_type,
+            recipient_pubkey.to_hex()
+        );
+        Ok(())
+    }
+
+    /// Send payment received notification
+    pub async fn notify_payment_received(
+        &self,
+        recipient_pubkey: &PublicKey,
+        invoice: &Bolt11String,
+        payment_hash: &PaymentHash,
+        amount: Amount,
+        preimage: &Preimage,
+    ) -> Result<()> {
+        use nanduti_core::models::{Timestamp, TransactionState};
+        use nanduti_core::nwc_protocol::{
+            NotificationData, NwcNotificationType, PaymentReceivedNotification,
+        };
+
+        let notification_data = NotificationData::PaymentReceived(PaymentReceivedNotification {
+            payment_type: PaymentType::Incoming,
+            state: TransactionState::Settled,
+            invoice: invoice.clone(),
+            payment_hash: payment_hash.clone(),
+            preimage: preimage.clone(),
+            amount,
+            settled_at: Timestamp::now(),
+        });
+
+        self.send_notification(
+            recipient_pubkey,
+            NwcNotificationType::PaymentReceived,
+            notification_data,
+        )
+        .await
+    }
+
+    /// Send payment sent notification
+    pub async fn notify_payment_sent(
+        &self,
+        recipient_pubkey: &PublicKey,
+        invoice: &Bolt11String,
+        payment_hash: &PaymentHash,
+        amount: Amount,
+        fees_paid: Option<Amount>,
+        preimage: &Preimage,
+    ) -> Result<()> {
+        use nanduti_core::models::{Timestamp, TransactionState};
+        use nanduti_core::nwc_protocol::{
+            NotificationData, NwcNotificationType, PaymentSentNotification,
+        };
+
+        let notification_data = NotificationData::PaymentSent(PaymentSentNotification {
+            payment_type: PaymentType::Outgoing,
+            state: TransactionState::Settled,
+            invoice: invoice.clone(),
+            payment_hash: payment_hash.clone(),
+            preimage: preimage.clone(),
+            amount,
+            fees_paid,
+            settled_at: Timestamp::now(),
+        });
+
+        self.send_notification(
+            recipient_pubkey,
+            NwcNotificationType::PaymentSent,
+            notification_data,
+        )
+        .await
+    }
+
+    /// Handle incoming NWC events
+    pub async fn handle_nwc_events(
+        &self,
+        handler: Arc<crate::NwcHandler>,
+        storage: Arc<nanduti_core::storage::Storage>,
+    ) -> Result<()> {
+        use lru::LruCache;
+        use std::num::NonZeroUsize;
+
+        // Track processed events to avoid duplicates using LRU cache
+        // Large capacity since we don't advance the `since` cursor and rely
+        // entirely on this LRU for dedup within a server session.
+        const EVENT_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
+        let mut processed_events = LruCache::new(EVENT_CACHE_CAPACITY);
+
+        // Seed from persistent storage so events processed before a restart
+        // are not replayed when the sliding window re-fetches them.
+        match storage.load_recent_event_ids(600) {
+            Ok(ids) => {
+                let mut count = 0;
+                for id in ids {
+                    if let Ok(event_id) = nostr_sdk::EventId::from_hex(&id) {
+                        processed_events.put(event_id, ());
+                        count += 1;
+                    }
+                }
+                if count > 0 {
+                    info!("Loaded {count} processed event IDs from storage");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load processed events from storage: {e}");
+            }
+        }
+
+        // Subscribe to NWC request events (kind 23194) sent to us.
+        // Use a sliding `since` window with a clock-skew tolerance so that:
+        // 1. We don't replay the full pre-startup history
+        // 2. Clients whose clocks are behind by up to CLOCK_SKEW_TOLERANCE are not dropped
+        // 3. The query window doesn't grow unbounded on long-lived servers
+        const CLOCK_SKEW_TOLERANCE_SECS: u64 = 300; // 5 minutes
+        let now = Timestamp::now();
+        let startup_since =
+            Timestamp::from_secs(now.as_u64().saturating_sub(CLOCK_SKEW_TOLERANCE_SECS));
+        let base_filter = Filter::new()
+            .kind(Kind::from(23194))
+            .pubkey(self.keys.public_key());
+        let filter = base_filter.clone().since(startup_since);
+
+        info!(
+            "Listening for NWC requests on {relay_count} relays (since {startup_since}, skew tolerance {CLOCK_SKEW_TOLERANCE_SECS}s)",
+            relay_count = self.client.relays().await.len()
+        );
+
+        // Use proper event streaming (subscribe and poll)
+        self.client.subscribe(filter.clone(), None).await?;
+
+        // Sliding window: advance `poll_since` using the server's monotonic
+        // sense of time minus the skew tolerance, so behind-clock events stay
+        // in the window while the query doesn't grow unbounded.
+        let mut poll_since = startup_since;
+
+        // Circuit breaker for error handling
+        let mut consecutive_errors = 0;
+        const MAX_CONSECUTIVE_ERRORS: usize = 10;
+        const BASE_BACKOFF_MS: u64 = 500;
+        const MAX_BACKOFF_MS: u64 = 30_000; // Cap at 30 seconds for payment systems
+
+        // Poll for events continuously
+        loop {
+            // Query using the sliding window (server time minus skew tolerance)
+            let poll_filter = base_filter.clone().since(poll_since);
+            match self.client.database().query(poll_filter).await {
+                Ok(events) => {
+                    consecutive_errors = 0; // Reset error counter on success
+
+                    for event in events {
+                        if processed_events.contains(&event.id) {
+                            continue;
+                        }
+
+                        // Also check persistent storage for cross-restart dedup
+                        let event_id_hex = event.id.to_hex();
+                        if storage.is_event_processed(&event_id_hex).unwrap_or(false) {
+                            processed_events.put(event.id, ());
+                            continue;
+                        }
+
+                        let event_id = event.id;
+                        if let Err(e) = self.handle_single_event(event, handler.clone()).await {
+                            // Errors from handle_single_event are permanent failures
+                            // (decrypt/parse errors) since handler-level errors are
+                            // converted to NWC error responses. Mark as processed to
+                            // prevent infinite retry of malformed events.
+                            tracing::warn!("Permanently failed event {event_id}: {e}");
+                            processed_events.put(event_id, ());
+                            let _ = storage.mark_event_processed(&event_id.to_hex());
+                            continue;
+                        }
+
+                        processed_events.put(event_id, ());
+                        let _ = storage.mark_event_processed(&event_id.to_hex());
+                    }
+
+                    // Advance the sliding window using server time minus the
+                    // skew tolerance. This keeps the query bounded while still
+                    // accepting events from behind-clock clients.
+                    poll_since = Timestamp::from_secs(
+                        Timestamp::now()
+                            .as_u64()
+                            .saturating_sub(CLOCK_SKEW_TOLERANCE_SECS),
+                    );
+                }
+                Err(e) => {
+                    consecutive_errors += 1;
+                    tracing::error!(
+                        "Error querying events (attempt {consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}"
+                    );
+
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                        tracing::error!(
+                            "Hit {MAX_CONSECUTIVE_ERRORS} consecutive errors, reconnecting relays"
+                        );
+
+                        // Calculate backoff before resetting the error count.
+                        let backoff_ms = (BASE_BACKOFF_MS
+                            * 2_u64.pow((consecutive_errors - 1) as u32))
+                        .min(MAX_BACKOFF_MS);
+
+                        // Attempt to reconnect instead of dying permanently
+                        self.client.connect().await;
+                        consecutive_errors = 0;
+
+                        tracing::warn!(
+                            "Backing off for {backoff_ms}ms before retry (consecutive errors reset after reconnect)"
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
+                        continue;
+                    }
+
+                    // Exponential backoff with proper cap.
+                    let backoff_ms = (BASE_BACKOFF_MS * 2_u64.pow((consecutive_errors - 1) as u32))
+                        .min(MAX_BACKOFF_MS);
+
+                    tracing::warn!(
+                        "Backing off for {backoff_ms}ms before retry (consecutive errors: {consecutive_errors})"
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
+                    continue;
+                }
+            }
+
+            // Small delay before next poll
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
+
+    /// Handle a single NWC event
+    async fn handle_single_event(
+        &self,
+        event: Event,
+        handler: Arc<crate::NwcHandler>,
+    ) -> Result<()> {
+        use crate::encryption;
+        use nanduti_core::models::PublicKey;
+        use nanduti_core::nwc_protocol::{NwcRequest, NwcRequestContext};
+
+        let pubkey = &event.pubkey;
+        debug!("Processing event from {pubkey}");
+
+        // Decrypt the request (NIP-44)
+        let decrypted_content =
+            encryption::decrypt_nip44(&event.content, &event.pubkey, &self.keys)?;
+
+        // Parse the request
+        let request: NwcRequest =
+            serde_json::from_str(&decrypted_content).context("Failed to parse NWC request")?;
+
+        let method = request.method.as_str().to_string();
+        info!("Received NWC request: {method}");
+
+        // Create request context with sender pubkey for authorization
+        let context = NwcRequestContext {
+            request,
+            sender_pubkey: PublicKey::new(event.pubkey.to_hex()),
+            event_id: event.id.to_hex(),
+        };
+
+        // Handle the request — convert errors into NWC error responses so the
+        // client gets a proper reply instead of a silent timeout.
+        let response = match handler.handle_request(context).await {
+            Ok(response) => response,
+            Err(e) => {
+                tracing::warn!("NWC request handler error for {method}: {e}");
+                nanduti_core::nwc_protocol::NwcResponse::error(
+                    method.clone(),
+                    nanduti_core::nwc_protocol::NwcErrorCode::Internal,
+                    format!("Internal error: {e}"),
+                )
+            }
+        };
+
+        // Serialize response
+        let response_content = serde_json::to_string(&response)?;
+
+        // Encrypt the response (NIP-44)
+        let encrypted_response =
+            encryption::encrypt_nip44(&response_content, &event.pubkey, &self.keys)?;
+
+        // Send response — log but don't propagate send failures since the
+        // request was already processed. Returning Err here would prevent the
+        // event from being marked as processed, causing infinite retry even
+        // though the handler already executed (potentially with side effects).
+        if let Err(e) = self
+            .send_nwc_response(event.id.to_hex(), event.pubkey.to_hex(), encrypted_response)
+            .await
+        {
+            tracing::warn!("Failed to send NWC response for event {}: {e}", event.id);
+        }
+
+        Ok(())
+    }
+}
