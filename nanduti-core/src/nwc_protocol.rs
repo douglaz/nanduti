@@ -487,6 +487,8 @@ pub struct PayKeysendParams {
     pub preimage: Option<Preimage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tlv_records: Option<Vec<TlvRecord>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

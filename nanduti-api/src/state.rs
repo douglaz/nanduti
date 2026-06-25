@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use nanduti_core::{
     federation::FederationManager, mnemonic_store::MnemonicStore, storage::Storage,
 };
+use std::path::Path;
 use std::sync::Arc;
 use tracing::info;
 
@@ -61,18 +62,27 @@ impl AppState {
                 .context("NANDUTI_MNEMONIC_PASSWORD environment variable not set")?;
 
             // Load or generate mnemonic
-            let mnemonic =
-                if let Some(m) = MnemonicStore::load_mnemonic(dir, Some(&password)).await? {
-                    info!("Loaded existing mnemonic for storage encryption");
-                    m
-                } else {
-                    // Generate new mnemonic
-                    info!("Generating new mnemonic for storage encryption");
-                    let entropy = rand::random::<[u8; 16]>();
-                    let mnemonic = fedimint_bip39::Mnemonic::from_entropy(&entropy)?;
-                    MnemonicStore::store_mnemonic(dir, &mnemonic, Some(&password)).await?;
-                    mnemonic
-                };
+            let mnemonic = if let Some(m) =
+                MnemonicStore::load_mnemonic(dir, Some(&password)).await?
+            {
+                info!("Loaded existing mnemonic for storage encryption");
+                m
+            } else {
+                if persistent_storage_exists(dir)? {
+                    let db_path = dir.join("nanduti.db");
+                    anyhow::bail!(
+                        "Mnemonic file is missing but existing storage was found at {}. Restore the original .mnemonic file or recover from backup before starting Nanduti.",
+                        db_path.display()
+                    );
+                }
+
+                // Generate new mnemonic
+                info!("Generating new mnemonic for storage encryption");
+                let entropy = rand::random::<[u8; 16]>();
+                let mnemonic = fedimint_bip39::Mnemonic::from_entropy(&entropy)?;
+                MnemonicStore::store_mnemonic(dir, &mnemonic, Some(&password)).await?;
+                mnemonic
+            };
 
             // Derive storage encryption key
             let key = MnemonicStore::derive_storage_key(&mnemonic)?;
@@ -139,5 +149,52 @@ impl AppState {
             relays,
             in_flight_payments,
         })
+    }
+}
+
+fn persistent_storage_exists(dir: &Path) -> Result<bool> {
+    let db_path = dir.join("nanduti.db");
+    match std::fs::metadata(&db_path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "Failed to inspect existing storage at {}",
+                db_path.display()
+            )
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::persistent_storage_exists;
+
+    fn temp_state_dir(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "nanduti-state-test-{name}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&path).expect("create temp state dir");
+        path
+    }
+
+    #[test]
+    fn persistent_storage_detection_is_false_for_empty_dir() -> anyhow::Result<()> {
+        let dir = temp_state_dir("empty");
+        let result = persistent_storage_exists(&dir);
+        std::fs::remove_dir_all(&dir)?;
+        assert!(!result?);
+        Ok(())
+    }
+
+    #[test]
+    fn persistent_storage_detection_finds_nanduti_db_marker() -> anyhow::Result<()> {
+        let dir = temp_state_dir("existing");
+        std::fs::create_dir(dir.join("nanduti.db"))?;
+        let result = persistent_storage_exists(&dir);
+        std::fs::remove_dir_all(&dir)?;
+        assert!(result?);
+        Ok(())
     }
 }

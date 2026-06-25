@@ -341,15 +341,24 @@ impl NostrClient {
                         tracing::error!(
                             "Hit {MAX_CONSECUTIVE_ERRORS} consecutive errors, reconnecting relays"
                         );
+
+                        // Calculate backoff before resetting the error count.
+                        let backoff_ms = (BASE_BACKOFF_MS
+                            * 2_u64.pow((consecutive_errors - 1) as u32))
+                        .min(MAX_BACKOFF_MS);
+
                         // Attempt to reconnect instead of dying permanently
                         self.client.connect().await;
                         consecutive_errors = 0;
+
+                        tracing::warn!(
+                            "Backing off for {backoff_ms}ms before retry (consecutive errors reset after reconnect)"
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
+                        continue;
                     }
 
-                    // Exponential backoff with proper cap
-                    // Formula: BASE * 2^(attempts - 1), capped at MAX
-                    // Error 1: 500ms, Error 2: 1s, Error 3: 2s, Error 4: 4s, Error 5: 8s, Error 6: 16s, Error 7+: 30s
-                    // Note: consecutive_errors is guaranteed to be >= 1 here (incremented on line 273)
+                    // Exponential backoff with proper cap.
                     let backoff_ms = (BASE_BACKOFF_MS * 2_u64.pow((consecutive_errors - 1) as u32))
                         .min(MAX_BACKOFF_MS);
 

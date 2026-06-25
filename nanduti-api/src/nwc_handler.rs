@@ -16,6 +16,7 @@ use nanduti_core::{
     storage::Storage,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid;
@@ -23,9 +24,9 @@ use uuid;
 use crate::nostr_client::NostrClient;
 use crate::router::FederationRouter;
 
-/// RAII guard that removes a payment hash from the in-flight set on drop.
+/// RAII guard that removes a payment or idempotency key from the in-flight set on drop.
 struct InFlightGuard {
-    payment_hash: String,
+    key: String,
     in_flight: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
@@ -34,10 +35,10 @@ impl Drop for InFlightGuard {
         // Spawn a task to guarantee the in-flight marker is removed even if
         // the mutex is currently held by another task. Using try_lock alone
         // could silently fail, leaving the hash stuck until restart.
-        let payment_hash = self.payment_hash.clone();
+        let key = self.key.clone();
         let in_flight = Arc::clone(&self.in_flight);
         tokio::spawn(async move {
-            in_flight.lock().await.remove(&payment_hash);
+            in_flight.lock().await.remove(&key);
         });
     }
 }
@@ -48,9 +49,9 @@ pub struct NwcHandler {
     router: Arc<FederationRouter>,
     storage: Option<Arc<Storage>>,
     nostr_client: Arc<NostrClient>,
-    /// In-flight payment hashes to prevent concurrent duplicate payments.
-    /// A payment hash is inserted before the payment call and removed after
-    /// settlement or failure. Wrapped in Arc so it can be shared with InFlightGuard.
+    /// In-flight payment hashes/idempotency keys to prevent concurrent duplicate payments.
+    /// A key is inserted before the payment call and removed after settlement or failure.
+    /// Wrapped in Arc so it can be shared with InFlightGuard.
     in_flight_payments: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
     /// Serializes the daily-limit check and pending-transaction write for all
     /// payments, preventing two concurrent requests from both passing the quota
@@ -396,7 +397,7 @@ impl NwcHandler {
         // Create RAII guard so the in-flight marker is automatically removed on
         // any exit path (success, failure, or early `?` error).
         let _in_flight_guard = InFlightGuard {
-            payment_hash: invoice.payment_hash.to_string(),
+            key: invoice.payment_hash.to_string(),
             in_flight: Arc::clone(&self.in_flight_payments),
         };
 
@@ -907,6 +908,13 @@ impl NwcHandler {
             serde_json::from_value(params).context("Invalid pay_keysend parameters")?;
 
         let amount = params.amount;
+        let preimage = params
+            .preimage
+            .as_ref()
+            .map(|p| hex::decode(p.as_str()))
+            .transpose()
+            .context("Invalid preimage hex")?;
+        let keysend_dedupe_key = Self::keysend_dedupe_key(sender_pubkey, &params)?;
 
         // Serialize the quota-check → pending-write window so two concurrent
         // payments for different invoices cannot both pass the daily limit.
@@ -1006,6 +1014,47 @@ impl NwcHandler {
             }
         }
 
+        {
+            let mut in_flight = self.in_flight_payments.lock().await;
+            if in_flight.contains(&keysend_dedupe_key) {
+                return Ok(NwcResponse::error(
+                    "pay_keysend".to_string(),
+                    NwcErrorCode::PaymentInProgress,
+                    "Keysend payment already in progress (concurrent request)".to_string(),
+                ));
+            }
+
+            if let Some(storage) = &self.storage {
+                if let Some(tx) = Self::find_keysend_duplicate(storage, &keysend_dedupe_key)? {
+                    return Ok(match tx.state {
+                        TransactionState::Settled => NwcResponse::error(
+                            "pay_keysend".to_string(),
+                            NwcErrorCode::AlreadyPaid,
+                            format!("Keysend already paid (transaction {})", tx.id.as_str()),
+                        ),
+                        TransactionState::Pending => NwcResponse::error(
+                            "pay_keysend".to_string(),
+                            NwcErrorCode::PaymentInProgress,
+                            format!(
+                                "Keysend payment already in progress (transaction {})",
+                                tx.id.as_str()
+                            ),
+                        ),
+                        TransactionState::Failed | TransactionState::Expired => {
+                            unreachable!("non-active transactions are ignored")
+                        }
+                    });
+                }
+            }
+
+            in_flight.insert(keysend_dedupe_key.clone());
+        }
+
+        let _in_flight_guard = InFlightGuard {
+            key: keysend_dedupe_key.clone(),
+            in_flight: Arc::clone(&self.in_flight_payments),
+        };
+
         // Load connection once for federation filtering and metadata
         let connection = if let Some(storage) = &self.storage {
             storage
@@ -1041,7 +1090,8 @@ impl NwcHandler {
         let metadata = connection.as_ref().map(|conn| {
             serde_json::json!({
                 "connection_id": conn.id,
-                "sender_pubkey": sender_pubkey.as_str()
+                "sender_pubkey": sender_pubkey.as_str(),
+                "keysend_dedupe_key": keysend_dedupe_key
             })
         });
 
@@ -1073,12 +1123,6 @@ impl NwcHandler {
             .client
             .as_ref()
             .ok_or_else(|| anyhow!("Federation client not initialized"))?;
-
-        let preimage = params
-            .preimage
-            .map(|p| hex::decode(p.as_str()))
-            .transpose()
-            .context("Invalid preimage hex")?;
 
         let result = match client.pay_keysend(&params.pubkey, amount, preimage).await {
             Ok(payment_result) => payment_result,
@@ -1250,5 +1294,178 @@ impl NwcHandler {
                 "Invoice not found".to_string(),
             ))
         }
+    }
+
+    fn keysend_dedupe_key(
+        sender_pubkey: &nanduti_core::models::PublicKey,
+        params: &PayKeysendParams,
+    ) -> Result<String> {
+        let explicit_key = params
+            .idempotency_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty());
+
+        let payload = if let Some(idempotency_key) = explicit_key {
+            serde_json::json!({
+                "version": 1,
+                "kind": "explicit",
+                "sender_pubkey": sender_pubkey.as_str(),
+                "idempotency_key": idempotency_key,
+            })
+        } else {
+            serde_json::json!({
+                "version": 1,
+                "kind": "fingerprint",
+                "sender_pubkey": sender_pubkey.as_str(),
+                "destination_pubkey": params.pubkey.as_str(),
+                "amount_msats": params.amount.as_msats(),
+                "preimage": params.preimage.as_ref().map(|p| p.as_str()),
+                "tlv_records": params.tlv_records,
+            })
+        };
+
+        let bytes =
+            serde_json::to_vec(&payload).context("Failed to serialize keysend idempotency key")?;
+        let digest = Sha256::digest(&bytes);
+        Ok(format!("keysend:{}", hex::encode(digest)))
+    }
+
+    fn find_keysend_duplicate(storage: &Storage, dedupe_key: &str) -> Result<Option<Transaction>> {
+        let mut pending = None;
+
+        for tx in storage.get_all_transactions()? {
+            if tx.transaction_type != TransactionType::Outgoing {
+                continue;
+            }
+
+            let tx_dedupe_key = tx
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("keysend_dedupe_key"))
+                .and_then(|value| value.as_str());
+
+            if tx_dedupe_key != Some(dedupe_key) {
+                continue;
+            }
+
+            match tx.state {
+                TransactionState::Settled => return Ok(Some(tx)),
+                TransactionState::Pending if pending.is_none() => pending = Some(tx),
+                TransactionState::Pending
+                | TransactionState::Failed
+                | TransactionState::Expired => {}
+            }
+        }
+
+        Ok(pending)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NwcHandler;
+    use nanduti_core::{
+        models::{
+            Amount, FederationId, PaymentHash, Preimage, PublicKey, Timestamp, Transaction,
+            TransactionId, TransactionState, TransactionType,
+        },
+        nwc_protocol::PayKeysendParams,
+        storage::Storage,
+    };
+
+    fn keysend_params(idempotency_key: Option<&str>, amount_msats: u64) -> PayKeysendParams {
+        PayKeysendParams {
+            amount: Amount::from_msats(amount_msats),
+            pubkey: PublicKey::new("receiver".to_string()),
+            preimage: Some(Preimage::new("00".repeat(32))),
+            tlv_records: None,
+            idempotency_key: idempotency_key.map(String::from),
+        }
+    }
+
+    fn keysend_transaction(id: &str, state: TransactionState, dedupe_key: &str) -> Transaction {
+        Transaction {
+            id: TransactionId::new(id.to_string()),
+            federation_id: FederationId::new("fed".to_string()),
+            transaction_type: TransactionType::Outgoing,
+            state,
+            invoice: None,
+            description: None,
+            preimage: None,
+            payment_hash: PaymentHash::new(format!("hash-{id}")),
+            amount: Amount::from_msats(1_000),
+            fees_paid: None,
+            created_at: Timestamp::from_secs(match state {
+                TransactionState::Failed => 1,
+                TransactionState::Settled => 2,
+                TransactionState::Pending => 3,
+                TransactionState::Expired => 4,
+            }),
+            settled_at: None,
+            metadata: Some(serde_json::json!({
+                "keysend_dedupe_key": dedupe_key
+            })),
+        }
+    }
+
+    #[test]
+    fn keysend_dedupe_key_uses_explicit_idempotency_key() -> anyhow::Result<()> {
+        let sender = PublicKey::new("sender".to_string());
+        let key_a =
+            NwcHandler::keysend_dedupe_key(&sender, &keysend_params(Some("retry-1"), 1_000))?;
+        let key_b =
+            NwcHandler::keysend_dedupe_key(&sender, &keysend_params(Some("retry-1"), 2_000))?;
+        let key_c =
+            NwcHandler::keysend_dedupe_key(&sender, &keysend_params(Some("retry-2"), 1_000))?;
+
+        assert_eq!(key_a, key_b);
+        assert_ne!(key_a, key_c);
+        Ok(())
+    }
+
+    #[test]
+    fn keysend_dedupe_key_fingerprints_params_without_explicit_key() -> anyhow::Result<()> {
+        let sender = PublicKey::new("sender".to_string());
+        let key_a = NwcHandler::keysend_dedupe_key(&sender, &keysend_params(None, 1_000))?;
+        let key_b = NwcHandler::keysend_dedupe_key(&sender, &keysend_params(None, 1_000))?;
+        let key_c = NwcHandler::keysend_dedupe_key(&sender, &keysend_params(None, 2_000))?;
+
+        assert_eq!(key_a, key_b);
+        assert_ne!(key_a, key_c);
+        Ok(())
+    }
+
+    #[test]
+    fn find_keysend_duplicate_uses_pending_and_settled_metadata() -> anyhow::Result<()> {
+        let storage = Storage::new(None, None)?;
+        let dedupe_key = "keysend:test";
+
+        storage.store_transaction(&keysend_transaction(
+            "failed",
+            TransactionState::Failed,
+            dedupe_key,
+        ))?;
+        assert!(NwcHandler::find_keysend_duplicate(&storage, dedupe_key)?.is_none());
+
+        storage.store_transaction(&keysend_transaction(
+            "pending",
+            TransactionState::Pending,
+            dedupe_key,
+        ))?;
+        let duplicate =
+            NwcHandler::find_keysend_duplicate(&storage, dedupe_key)?.expect("pending duplicate");
+        assert_eq!(duplicate.id.as_str(), "pending");
+
+        storage.store_transaction(&keysend_transaction(
+            "settled",
+            TransactionState::Settled,
+            dedupe_key,
+        ))?;
+        let duplicate =
+            NwcHandler::find_keysend_duplicate(&storage, dedupe_key)?.expect("settled duplicate");
+        assert_eq!(duplicate.id.as_str(), "settled");
+
+        Ok(())
     }
 }

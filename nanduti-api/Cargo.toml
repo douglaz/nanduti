@@ -34,6 +34,7 @@ tracing-subscriber = { workspace = true }
 
 # Crypto
 hex = { workspace = true }
+sha2 = { workspace = true }
 
 # Utils for IDs
 uuid = { workspace = true }
