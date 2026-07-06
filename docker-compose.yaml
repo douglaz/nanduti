@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  nanduti:
+    image: nanduti:latest
+    container_name: nanduti
+    restart: unless-stopped
+    ports:
+      - "3517:3517"
+    volumes:
+      - ./data:/data
+    environment:
+      - RUST_LOG=info,nanduti=debug
+      # Required for persistent storage — set to a strong passphrase
+      - NANDUTI_MNEMONIC_PASSWORD=${NANDUTI_MNEMONIC_PASSWORD:?Set NANDUTI_MNEMONIC_PASSWORD in .env or environment}
+      # Required — bearer token for REST API authentication (since host is 0.0.0.0)
+      - API_SECRET=${API_SECRET:?Set API_SECRET in .env or environment}
+    command:
+      - serve
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "3517"
+      - --data-dir
+      - /data
+      - --relay
+      - wss://relay.damus.io
+      - --relay
+      - wss://relay.primal.net

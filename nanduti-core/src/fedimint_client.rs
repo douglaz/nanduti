@@ -1,0 +1,761 @@
+//! Wrapper for Fedimint client operations
+
+use anyhow::{bail, Context, Result};
+use fedimint_bip39::{Bip39RootSecretStrategy, Mnemonic};
+use fedimint_client::module_init::ClientModuleInitRegistry;
+use fedimint_client::secret::RootSecretStrategy;
+use fedimint_client::{Client, ClientHandleArc, RootSecret};
+use fedimint_core::config::FederationId;
+use fedimint_core::db::Database;
+use fedimint_core::invite_code::InviteCode;
+use fedimint_core::Amount as FedimintAmount;
+use fedimint_ln_client::LightningClientModule;
+use fedimint_ln_common::{LightningGateway, LightningGatewayAnnouncement};
+use fedimint_meta_client::{common::MetaKey, MetaClientInit, MetaClientModule};
+use fedimint_mint_client::{MintClientInit, MintClientModule};
+use fedimint_wallet_client::{api::WalletFederationApi, WalletClientInit, WalletClientModule};
+use lightning_invoice::Bolt11Invoice;
+use rand::rngs::OsRng;
+use rand::seq::IteratorRandom;
+use std::convert::TryFrom;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tracing::info;
+
+use crate::lightning::PaymentResult;
+use crate::mnemonic_store::MnemonicStore;
+use crate::models::{
+    Amount, Bolt11String, Description, Expiry, GatewayVettingStatus, Invoice, PaymentHash,
+    Preimage, PublicKey,
+};
+
+/// Wrapper around the actual Fedimint client
+/// This abstracts the Fedimint client API for easier testing and maintenance
+#[derive(Debug)]
+pub struct FedimintClientWrapper {
+    client: ClientHandleArc,
+    federation_id: FederationId,
+    federation_name: String,
+    db_path: PathBuf,
+    /// Keeps the temporary directory alive for ephemeral (data_dir=None) clients.
+    /// When dropped, the temp directory and its database are cleaned up.
+    _temp_dir: Option<tempfile::TempDir>,
+}
+
+impl FedimintClientWrapper {
+    /// Create a new Fedimint client from invite code
+    pub async fn new(invite: &InviteCode, data_dir: Option<&Path>) -> Result<Self> {
+        info!("Initializing Fedimint client from invite code");
+
+        let federation_id = invite.federation_id();
+
+        // Create database path.
+        // When data_dir is None (ephemeral mode), use a temporary directory so we
+        // don't silently create persistent files or require NANDUTI_MNEMONIC_PASSWORD.
+        // The TempDir handle is stored in the struct to keep the directory alive.
+        let temp_dir_handle;
+        let db_path = if let Some(dir) = data_dir {
+            let p = dir.join(format!("federation_{federation_id}"));
+            std::fs::create_dir_all(&p)?;
+            temp_dir_handle = None;
+            p
+        } else {
+            let tmp = tempfile::tempdir()
+                .context("Failed to create temp dir for ephemeral federation")?;
+            let p = tmp.path().join(format!("federation_{federation_id}"));
+            std::fs::create_dir_all(&p)?;
+            temp_dir_handle = Some(tmp);
+            p
+        };
+
+        // Open database
+        let db_file = db_path.join("client.db");
+        let locked_db = fedimint_cursed_redb::MemAndRedb::new(&db_file)
+            .await
+            .context("Failed to open database")?;
+        let db = Database::new(locked_db, Default::default());
+
+        // Generate or load mnemonic first
+        let ephemeral = data_dir.is_none();
+        let mnemonic = Self::load_or_generate_mnemonic(&db_path, ephemeral).await?;
+        let root_secret = RootSecret::StandardDoubleDerive(
+            Bip39RootSecretStrategy::<12>::to_root_secret(&mnemonic),
+        );
+
+        // Try to open existing client first
+        {
+            let mut client_builder = Client::builder(db.clone()).await?;
+            client_builder.with_module_inits(Self::build_module_inits());
+            client_builder.with_primary_module_kind(fedimint_mint_client::KIND);
+
+            if let Ok(client) = client_builder.open(root_secret.clone()).await {
+                info!("Opened existing client for federation {federation_id}");
+
+                // Get federation name from config
+                let config = client.config().await;
+                let federation_name = config
+                    .global
+                    .meta
+                    .get("federation_name")
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown Federation".to_string());
+
+                return Ok(Self {
+                    client: Arc::new(client),
+                    federation_id,
+                    federation_name,
+                    db_path,
+                    _temp_dir: temp_dir_handle,
+                });
+            }
+        }
+
+        // Join new federation if client doesn't exist
+        info!("Joining new federation {federation_id}");
+
+        // Create a new client builder for joining
+        let mut client_builder = Client::builder(db.clone()).await?;
+        client_builder.with_module_inits(Self::build_module_inits());
+        client_builder.with_primary_module_kind(fedimint_mint_client::KIND);
+
+        // Preview the federation
+        let client_config = client_builder
+            .preview(invite)
+            .await
+            .context("Failed to preview federation")?;
+
+        // Get federation name from preview
+        let federation_name = client_config
+            .config()
+            .global
+            .meta
+            .get("federation_name")
+            .cloned()
+            .unwrap_or_else(|| "Unknown Federation".to_string());
+
+        // Join the federation
+        let root_secret = RootSecret::StandardDoubleDerive(
+            Bip39RootSecretStrategy::<12>::to_root_secret(&mnemonic),
+        );
+
+        let client = client_config
+            .join(root_secret)
+            .await
+            .map(Arc::new)
+            .context("Failed to join federation")?;
+
+        info!("Successfully joined federation: {federation_name}");
+
+        Ok(Self {
+            client,
+            federation_id,
+            federation_name,
+            db_path,
+            _temp_dir: temp_dir_handle,
+        })
+    }
+
+    /// Build module initializers
+    fn build_module_inits() -> ClientModuleInitRegistry {
+        let mut registry = ClientModuleInitRegistry::new();
+        registry.attach(MintClientInit);
+        registry.attach(fedimint_ln_client::LightningClientInit::default());
+        registry.attach(WalletClientInit::default());
+        registry.attach(MetaClientInit);
+        // TODO: Enable LNv2 when Fedimint supports it
+        // Track progress: https://github.com/fedimint/fedimint/issues/5492
+        // registry.attach(fedimint_lnv2_client::LightningClientInit::default());
+        registry
+    }
+
+    /// Load or generate mnemonic
+    ///
+    /// When `ephemeral` is true, a random mnemonic is generated without persisting
+    /// or requiring a password (used for in-memory/temp mode).
+    async fn load_or_generate_mnemonic(db_path: &Path, ephemeral: bool) -> Result<Mnemonic> {
+        if ephemeral {
+            info!("Generating ephemeral mnemonic (not persisted)");
+            let entropy = rand::random::<[u8; 16]>();
+            return Mnemonic::from_entropy(&entropy)
+                .context("Failed to generate ephemeral mnemonic");
+        }
+
+        // Get password from environment variable
+        let password = std::env::var("NANDUTI_MNEMONIC_PASSWORD")
+            .context("NANDUTI_MNEMONIC_PASSWORD environment variable not set. This is required to encrypt wallet mnemonics securely.")?;
+
+        // Validate password is not empty
+        if password.is_empty() {
+            bail!("NANDUTI_MNEMONIC_PASSWORD cannot be empty");
+        }
+
+        // Try to load existing mnemonic
+        if let Some(mnemonic) = MnemonicStore::load_mnemonic(db_path, Some(&password)).await? {
+            info!("Loaded existing mnemonic from secure storage");
+            return Ok(mnemonic);
+        }
+
+        // Generate new mnemonic if none exists
+        info!("Generating new mnemonic - this will be encrypted with your password");
+        let entropy = rand::random::<[u8; 16]>();
+        let mnemonic = Mnemonic::from_entropy(&entropy)?;
+
+        // Store the new mnemonic with encryption
+        MnemonicStore::store_mnemonic(db_path, &mnemonic, Some(&password)).await?;
+        info!("Mnemonic securely stored with AES-256-GCM encryption");
+
+        Ok(mnemonic)
+    }
+
+    /// Get the database path for this federation
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
+    }
+
+    /// Get current balance
+    pub async fn get_balance(&self) -> Result<Amount> {
+        // Get the mint module
+        let mint_module = self
+            .client
+            .get_first_module::<MintClientModule>()
+            .context("Mint module not available")?;
+
+        // Get the mint module's actual instance ID from the federation config
+        // instead of hardcoding 1, since Fedimint assigns IDs from config.
+        let mint_instance_id = mint_module.id;
+
+        // Get note counts by denomination from the database
+        let summary = mint_module
+            .get_note_counts_by_denomination(
+                &mut self
+                    .client
+                    .db()
+                    .begin_transaction_nc()
+                    .await
+                    .to_ref_with_prefix_module_id(mint_instance_id)
+                    .0,
+            )
+            .await;
+
+        let total_msats = summary.total_amount().msats;
+
+        Ok(Amount::from_msats(total_msats))
+    }
+
+    /// Pay a lightning invoice
+    ///
+    /// When `amount_override` is `Some`, it is forwarded to Fedimint's
+    /// `pay_bolt11_invoice` so that amountless BOLT11 invoices are paid
+    /// with the caller-specified amount.
+    pub async fn pay_invoice(
+        &self,
+        invoice: &Invoice,
+        _amount_override: Option<Amount>,
+    ) -> Result<PaymentResult> {
+        // Convert to Bolt11Invoice
+        let bolt11 = Bolt11Invoice::try_from(invoice).context("Failed to parse BOLT11 invoice")?;
+
+        // Get the lightning module
+        let ln_module = self
+            .client
+            .get_first_module::<LightningClientModule>()
+            .context("Lightning module not available")?;
+
+        info!(
+            "Paying invoice via federation {name}",
+            name = self.federation_name
+        );
+
+        // Fedimint 0.8.1's pay_bolt11_invoice does not support amount overrides
+        // for amountless invoices — the BOLT11 must include an amount.
+        if bolt11.amount_milli_satoshis().is_none() {
+            bail!(
+                "Amountless invoices are not supported by this Fedimint version. \
+                 The BOLT11 invoice must include an amount."
+            );
+        }
+
+        // Select a gateway for the payment
+        let gateway = self.select_gateway().await?;
+
+        // Pay the invoice and get the operation
+        let outgoing_payment = ln_module
+            .pay_bolt11_invoice(gateway, bolt11.clone(), ())
+            .await
+            .context("Failed to pay invoice")?;
+
+        // Wait for the payment to complete
+        let payment_result = ln_module
+            .wait_for_ln_payment(
+                outgoing_payment.payment_type,
+                outgoing_payment.contract_id,
+                false, // Don't return early
+            )
+            .await?
+            .context("Payment did not complete")?;
+
+        // Extract payment details from the result (JSON)
+        let preimage_str = payment_result
+            .get("preimage")
+            .and_then(|v| v.as_str())
+            .context("Payment succeeded but no preimage available")?;
+
+        let preimage_hex = preimage_str.to_string();
+        let payment_hash = hex::encode(bolt11.payment_hash().as_ref() as &[u8]);
+
+        Ok(PaymentResult {
+            preimage: Preimage::new(preimage_hex),
+            fees_paid: Some(Amount::from_msats(outgoing_payment.fee.msats)),
+            payment_hash: PaymentHash::new(payment_hash),
+            amount_paid: invoice.amount.unwrap_or(Amount::from_msats(
+                bolt11.amount_milli_satoshis().unwrap_or(0),
+            )),
+        })
+    }
+
+    /// Fetch available gateways from the federation
+    pub async fn fetch_gateways(&self) -> Result<Vec<LightningGatewayAnnouncement>> {
+        let ln_module = self
+            .client
+            .get_first_module::<LightningClientModule>()
+            .context("Lightning module not available")?;
+
+        // Update gateway cache to get latest gateways
+        ln_module
+            .update_gateway_cache()
+            .await
+            .context("Failed to update gateway cache")?;
+
+        // List available gateways
+        let gateways = ln_module.list_gateways().await;
+
+        info!(
+            "Found {count} gateways in federation {name}",
+            count = gateways.len(),
+            name = self.federation_name
+        );
+        Ok(gateways)
+    }
+
+    /// Fetch available gateways with vetted status
+    pub async fn fetch_gateways_with_vetted_status(
+        &self,
+    ) -> Result<Vec<(LightningGatewayAnnouncement, GatewayVettingStatus)>> {
+        let gateways = self.fetch_gateways().await?;
+        let vetted_policy = self.fetch_vetted_gateways().await?;
+
+        let gateways_with_status: Vec<(LightningGatewayAnnouncement, GatewayVettingStatus)> =
+            match vetted_policy {
+                Some(vetted_ids) => {
+                    // Vetting policy exists - classify gateways as Vetted or NotVetted
+                    gateways
+                        .into_iter()
+                        .map(|g| {
+                            let status = if vetted_ids.contains(&g.info.gateway_id.to_string()) {
+                                GatewayVettingStatus::Vetted
+                            } else {
+                                GatewayVettingStatus::NotVetted
+                            };
+                            (g, status)
+                        })
+                        .collect()
+                }
+                None => {
+                    // No vetting policy - all gateways are Unknown (acceptable)
+                    gateways
+                        .into_iter()
+                        .map(|g| (g, GatewayVettingStatus::Unknown))
+                        .collect()
+                }
+            };
+
+        let vetted_count = gateways_with_status
+            .iter()
+            .filter(|(_, s)| *s == GatewayVettingStatus::Vetted)
+            .count();
+        let not_vetted_count = gateways_with_status
+            .iter()
+            .filter(|(_, s)| *s == GatewayVettingStatus::NotVetted)
+            .count();
+        let unknown_count = gateways_with_status
+            .iter()
+            .filter(|(_, s)| *s == GatewayVettingStatus::Unknown)
+            .count();
+
+        info!(
+            "Found {total} gateways in federation {name}: {vetted} vetted, {not_vetted} not-vetted, {unrestricted} unrestricted",
+            total = gateways_with_status.len(),
+            name = self.federation_name,
+            vetted = vetted_count,
+            not_vetted = not_vetted_count,
+            unrestricted = unknown_count
+        );
+
+        Ok(gateways_with_status)
+    }
+
+    /// Select an appropriate gateway for operations
+    pub async fn select_gateway(&self) -> Result<Option<LightningGateway>> {
+        let gateways_with_status = self.fetch_gateways_with_vetted_status().await?;
+
+        if gateways_with_status.is_empty() {
+            info!(
+                "No gateways available in federation {name}",
+                name = self.federation_name
+            );
+            return Ok(None);
+        }
+
+        // Separate gateways by vetting status
+        let mut vetted = Vec::new();
+        let mut unknown = Vec::new();
+        let mut not_vetted = Vec::new();
+
+        for (gateway, status) in gateways_with_status {
+            match status {
+                GatewayVettingStatus::Vetted => vetted.push(gateway),
+                GatewayVettingStatus::Unknown => unknown.push(gateway),
+                GatewayVettingStatus::NotVetted => not_vetted.push(gateway),
+            }
+        }
+
+        // Selection priority: Vetted > Unknown > Never select NotVetted
+        let (selected, status_name) = if !vetted.is_empty() {
+            info!(
+                "Selecting from {count} vetted gateways in federation {name}",
+                count = vetted.len(),
+                name = self.federation_name
+            );
+            (
+                vetted
+                    .into_iter()
+                    .choose(&mut OsRng)
+                    .map(|announcement| announcement.info),
+                "vetted",
+            )
+        } else if !unknown.is_empty() {
+            info!(
+                "No vetted gateways available, selecting from {count} unrestricted gateways in federation {name} (no vetting policy)",
+                count = unknown.len(),
+                name = self.federation_name
+            );
+            (
+                unknown
+                    .into_iter()
+                    .choose(&mut OsRng)
+                    .map(|announcement| announcement.info),
+                "unrestricted",
+            )
+        } else {
+            info!(
+                "Warning: Only {count} not-vetted gateways available in federation {name} - cannot select (policy forbids)",
+                count = not_vetted.len(),
+                name = self.federation_name
+            );
+            (None, "none")
+        };
+
+        if let Some(ref gateway) = selected {
+            info!(
+                "Selected {status} gateway {id} for federation {name}",
+                status = status_name,
+                id = gateway.gateway_id,
+                name = self.federation_name
+            );
+        }
+
+        Ok(selected)
+    }
+
+    /// Generate a new invoice
+    pub async fn make_invoice(
+        &self,
+        amount: Amount,
+        description: String,
+        expiry: Option<u64>,
+    ) -> Result<Invoice> {
+        // Get the lightning module
+        let ln_module = self
+            .client
+            .get_first_module::<LightningClientModule>()
+            .context("Lightning module not available")?;
+
+        let fedimint_amount = FedimintAmount::from_msats(amount.as_msats());
+
+        // Select a gateway for routing hints
+        let gateway = self.select_gateway().await?;
+
+        if gateway.is_none() {
+            info!(
+                "Warning: Creating invoice without gateway routing hints for federation {name}",
+                name = self.federation_name
+            );
+        }
+
+        info!(
+            "Creating invoice via federation {name} for {amount} msats with gateway: {gateway_id}",
+            name = self.federation_name,
+            amount = amount.as_msats(),
+            gateway_id = gateway
+                .as_ref()
+                .map(|g| g.gateway_id.to_string())
+                .unwrap_or_else(|| "none".to_string())
+        );
+
+        // Create the invoice with proper parameters for fedimint 0.8.1
+        let invoice_description = lightning_invoice::Bolt11InvoiceDescription::Direct(
+            lightning_invoice::Description::new(description.clone())
+                .context("Invalid invoice description")?,
+        );
+
+        let (operation_id, invoice, _preimage) = ln_module
+            .create_bolt11_invoice(
+                fedimint_amount,
+                invoice_description,
+                Some(expiry.unwrap_or(crate::constants::DEFAULT_INVOICE_EXPIRY_SECS)),
+                (),      // extra_meta
+                gateway, // gateway for routing hints
+            )
+            .await
+            .context("Failed to create invoice")?;
+
+        let payment_hash = hex::encode(invoice.payment_hash().as_ref() as &[u8]);
+
+        // Use the effective expiry (explicit or default) so clients see the
+        // correct deadline even when the caller omitted the expiry parameter.
+        let effective_expiry = expiry.unwrap_or(crate::constants::DEFAULT_INVOICE_EXPIRY_SECS);
+
+        Ok(Invoice {
+            bolt11: Bolt11String::new(invoice.to_string()),
+            payment_hash: PaymentHash::new(payment_hash),
+            amount: Some(amount),
+            description: Some(Description::new(description)),
+            expiry: Some(Expiry::from_secs(effective_expiry)),
+            payee_pubkey: None,
+            created_at: Some(invoice.timestamp()),
+            operation_id: Some(hex::encode(operation_id.0)),
+            network: None,
+        })
+    }
+
+    /// Perform a keysend payment (not yet supported by Fedimint)
+    pub async fn pay_keysend(
+        &self,
+        _pubkey: &PublicKey,
+        _amount: Amount,
+        _preimage: Option<Vec<u8>>,
+    ) -> Result<PaymentResult> {
+        // Fedimint doesn't directly support keysend yet
+        // This would need to be implemented as a custom module or gateway feature
+        bail!("Keysend payments are not yet supported by Fedimint")
+    }
+
+    /// Subscribe to an invoice's settlement status.
+    ///
+    /// Watches the Fedimint operation for the given `operation_id` (hex-encoded)
+    /// and returns `true` when the invoice is claimed (paid), or `false` if
+    /// cancelled. This should be spawned as a background task after creating
+    /// an invoice so the transaction state can be updated on settlement.
+    pub async fn await_invoice_settlement(&self, operation_id_hex: &str) -> Result<bool> {
+        use fedimint_ln_client::LnReceiveState;
+        use futures::StreamExt;
+
+        let bytes = hex::decode(operation_id_hex).context("Invalid operation_id hex")?;
+        let op_id = fedimint_core::core::OperationId(
+            bytes
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Operation ID must be 32 bytes"))?,
+        );
+
+        let ln_module = self
+            .client
+            .get_first_module::<LightningClientModule>()
+            .context("Lightning module not available")?;
+
+        let mut stream = ln_module
+            .subscribe_ln_receive(op_id)
+            .await
+            .context("Failed to subscribe to invoice settlement")?
+            .into_stream();
+
+        while let Some(state) = stream.next().await {
+            match state {
+                LnReceiveState::Claimed => return Ok(true),
+                LnReceiveState::Canceled { .. } => return Ok(false),
+                _ => continue, // AwaitingFunds, etc.
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Fetch vetted gateway IDs from the meta module
+    /// Returns None if no vetting policy exists, Some(vec) if policy exists
+    pub async fn fetch_vetted_gateways(&self) -> Result<Option<Vec<String>>> {
+        // Try to get the meta module
+        let meta_module = match self.client.get_first_module::<MetaClientModule>() {
+            Ok(module) => module,
+            Err(_) => {
+                // Meta module not available, no vetting policy
+                info!(
+                    "Meta module not available in federation {name} - no vetting policy",
+                    name = self.federation_name
+                );
+                return Ok(None);
+            }
+        };
+
+        // Fetch consensus value at key 0 (vetted_gateways convention)
+        let meta_key = MetaKey(0);
+        let consensus_value = meta_module
+            .get_consensus_value(meta_key)
+            .await
+            .context("Failed to fetch consensus value from meta module")?;
+
+        if let Some(consensus) = consensus_value {
+            // Try to parse MetaValue as JSON
+            match consensus.value.to_json() {
+                Ok(json) => {
+                    // Look for vetted_gateways field
+                    if let Some(vetted) = json.get("vetted_gateways") {
+                        if let Some(gateway_array) = vetted.as_array() {
+                            let gateway_ids: Vec<String> = gateway_array
+                                .iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect();
+
+                            info!(
+                                "Found vetted gateway policy with {count} approved gateways in federation {name} (revision {rev})",
+                                count = gateway_ids.len(),
+                                name = self.federation_name,
+                                rev = consensus.revision
+                            );
+                            return Ok(Some(gateway_ids));
+                        }
+                    }
+                }
+                Err(e) => {
+                    info!(
+                        "Failed to parse meta value as JSON in federation {name}: {error}",
+                        name = self.federation_name,
+                        error = e
+                    );
+                }
+            }
+        }
+
+        // No vetted gateway policy configured
+        info!(
+            "No vetted gateway policy configured in federation {name}",
+            name = self.federation_name
+        );
+        Ok(None)
+    }
+
+    /// Get federation info
+    pub async fn get_info(&self) -> Result<FederationInfo> {
+        let config = self.client.config().await;
+
+        // Get network from config
+        let network = config
+            .global
+            .meta
+            .get("network")
+            .cloned()
+            .unwrap_or_else(|| "bitcoin".to_string());
+
+        // Get wallet module to access its ID for API calls
+        let wallet_module = self
+            .client
+            .get_first_module::<WalletClientModule>()
+            .context("Wallet module not available")?;
+
+        // Fetch consensus block count from the federation wallet module API
+        // Block height = block count - 1 (since genesis block is height 0)
+        let block_count = self
+            .client
+            .api()
+            .with_module(wallet_module.id)
+            .fetch_consensus_block_count()
+            .await
+            .context("Failed to fetch consensus block count")?;
+
+        let block_height = block_count.saturating_sub(1);
+
+        Ok(FederationInfo {
+            network,
+            block_height,
+            synced: true,
+            federation_id: self.federation_id.to_string(),
+            federation_name: self.federation_name.clone(),
+        })
+    }
+
+    /// Estimate fee for a payment
+    ///
+    /// Attempts to query the selected gateway for actual fee schedule.
+    /// Falls back to default values if no gateway is available.
+    pub async fn estimate_fee(&self, amount: Amount) -> Result<Amount> {
+        // Verify lightning module is available
+        let _ln_module = self
+            .client
+            .get_first_module::<LightningClientModule>()
+            .context("Lightning module not available")?;
+
+        // Try to get actual fees from selected gateway
+        let (base_fee_msats, proportional_fee_ppm) = match self.select_gateway().await {
+            Ok(Some(gateway)) => {
+                // Use actual gateway fees
+                // base_msat is in millisatoshis
+                // proportional_millionths is per million (divide by 1,000,000 for ratio)
+                // We convert proportional_millionths to ppm for our calculation
+                let base = gateway.fees.base_msat as u64;
+                let proportional = gateway.fees.proportional_millionths as u64;
+                info!(
+                    "Using gateway fees: base={base}msat, proportional={proportional}ppm for federation {name}",
+                    name = self.federation_name
+                );
+                (base, proportional)
+            }
+            Ok(None) => {
+                // No gateway available, use defaults
+                info!(
+                    "No gateway available, using default fees for federation {name}",
+                    name = self.federation_name
+                );
+                (
+                    crate::constants::DEFAULT_BASE_FEE_MSATS,
+                    crate::constants::DEFAULT_PROPORTIONAL_FEE_PPM,
+                )
+            }
+            Err(e) => {
+                // Error querying gateway, use defaults
+                info!(
+                    "Failed to query gateway fees ({e}), using defaults for federation {name}",
+                    name = self.federation_name
+                );
+                (
+                    crate::constants::DEFAULT_BASE_FEE_MSATS,
+                    crate::constants::DEFAULT_PROPORTIONAL_FEE_PPM,
+                )
+            }
+        };
+
+        // Calculate total fee
+        // proportional_fee = amount * (proportional_fee_ppm / 1,000,000)
+        let proportional_fee = (amount.as_msats() * proportional_fee_ppm) / 1_000_000;
+        let total_fee = base_fee_msats + proportional_fee;
+
+        // Ensure minimum fee of 10 msats
+        Ok(Amount::from_msats(total_fee.max(10)))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FederationInfo {
+    pub network: String,
+    pub block_height: u64,
+    pub synced: bool,
+    pub federation_id: String,
+    pub federation_name: String,
+}
